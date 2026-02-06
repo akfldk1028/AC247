@@ -219,6 +219,11 @@ Examples:
         action="store_true",
         help="Build directly in project without worktree isolation (default: use isolated worktree)",
     )
+    parser.add_argument(
+        "--auto-merge",
+        action="store_true",
+        help="Automatically merge to project after QA passes (full end-to-end automation)",
+    )
 
     args = parser.parse_args()
 
@@ -319,6 +324,27 @@ Examples:
             spec_dir=str(orchestrator.spec_dir),
         )
 
+        # When --no-build, set plan to "queue" so daemon can auto-pick it up
+        if args.no_build:
+            plan_path = orchestrator.spec_dir / "implementation_plan.json"
+            if plan_path.exists():
+                try:
+                    from core.file_utils import write_json_atomic
+
+                    with open(plan_path, encoding="utf-8") as f:
+                        plan_data = json.load(f)
+                    plan_data["status"] = "queue"
+                    plan_data["planStatus"] = "queue"
+                    plan_data["xstateState"] = "backlog"
+                    write_json_atomic(plan_path, plan_data, indent=2)
+                    debug("spec_runner", "Set plan to queue status for daemon pickup")
+                except (json.JSONDecodeError, OSError) as e:
+                    debug_error("spec_runner", f"Failed to set queue status: {e}")
+                    print_status(
+                        "Warning: Could not set task to queue status for daemon.",
+                        "warning",
+                    )
+
         # Auto-start build unless --no-build is specified
         if not args.no_build:
             debug("spec_runner", "Checking if spec is approved for build...")
@@ -397,6 +423,10 @@ Examples:
             # Pass --direct flag if specified (skip worktree isolation)
             if args.direct:
                 run_cmd.append("--direct")
+
+            # Pass --auto-merge flag for full end-to-end automation
+            if args.auto_merge:
+                run_cmd.append("--auto-merge")
 
             # Note: Model configuration for subsequent phases (planning, coding, qa)
             # is read from task_metadata.json by run.py, so we don't pass it here.

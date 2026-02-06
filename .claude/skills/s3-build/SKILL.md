@@ -3,7 +3,9 @@ name: s3-build
 description: |
   S3 Flutter 프로젝트 빌드 자동화. 의존성 설치, 코드 생성(Freezed/Riverpod), 앱 빌드.
   사용 시점: (1) 코드 변경 후 빌드, (2) Freezed 모델 수정 후, (3) 새 의존성 추가 후
+  사용 금지: 앱 실행만 할 때(flutter run), 배포용(s3-deploy), 코드 분석(flutter analyze)
 argument-hint: "[all|flutter|web|apk|code]"
+allowed-tools: Read, Grep, Glob, Bash
 ---
 
 # S3 Build Skill

@@ -3,7 +3,9 @@ name: s3-test
 description: |
   S3 Flutter 테스트 실행 및 결과 분석. 유닛/위젯/통합 테스트 지원.
   사용 시점: (1) PR 전 검증, (2) 기능 구현 후, (3) 버그 수정 후 회귀 테스트
+  사용 금지: 단순 lint만 필요, 커버리지만 필요, 앱 실행 확인만
 argument-hint: "[all|unit|widget|integration|feature-name]"
+allowed-tools: Read, Grep, Glob, Bash
 ---
 
 # S3 Test Skill

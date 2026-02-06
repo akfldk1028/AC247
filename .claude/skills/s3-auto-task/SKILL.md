@@ -3,7 +3,9 @@ name: s3-auto-task
 description: |
   Auto-Claude로 task 생성 및 자동 빌드. Kanban 카드 자동 이동.
   사용 시점: (1) 새 기능 개발 시작, (2) 버그 수정 요청, (3) 24/7 자동 빌드
+  사용 금지: 1줄 수정, 단순 리팩토링, UI만 테스트할 때
 argument-hint: "[task-description] [--project path] [--auto-approve]"
+allowed-tools: Read, Grep, Glob, Bash, Write
 ---
 
 # S3 Auto-Task Skill

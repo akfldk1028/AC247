@@ -6,6 +6,63 @@ Auto Claude is an autonomous multi-agent coding framework that plans, builds, an
 
 > **Deep-dive reference:** [ARCHITECTURE.md](shared_docs/ARCHITECTURE.md) | **All docs:** [docs/INDEX.md](docs/INDEX.md) | **Frontend contributing:** [apps/frontend/CONTRIBUTING.md](apps/frontend/CONTRIBUTING.md)
 
+## Known Issues & Critical Fixes (Troubleshooting)
+
+> **Read this before debugging the spec pipeline or daemon.** These are hard-won lessons from multi-session debugging.
+
+### 1. Stale `spec_dir` after rename (CRITICAL)
+
+**Symptom:** `phase_spec_writing` fails 3 times with "Agent did not create spec.md" even though the agent DID create it.
+
+**Root cause:** After `_rename_spec_dir_from_requirements()` in `orchestrator.py`, the disk path changes from `001-pending` → `001-meaningful-name`. But `PhaseExecutor.spec_dir`, `PhaseExecutor.spec_validator`, and `TaskLogger` still point to the old `001-pending` path.
+
+**Fix location:** `spec/pipeline/orchestrator.py` — after calling `_rename_spec_dir_from_requirements()`, ALL references must be synced:
+
+```python
+# After rename, sync all references:
+self.validator = SpecValidator(self.spec_dir)
+task_logger = get_task_logger(self.spec_dir)
+phase_executor.spec_dir = self.spec_dir
+phase_executor.spec_validator = self.validator
+phase_executor.task_logger = task_logger
+```
+
+**Rule:** Any time `self.spec_dir` changes, **every component holding a copy must be updated.**
+
+### 2. File-exists-but-success=False pattern
+
+**Symptom:** Agent creates valid files (spec.md, implementation_plan.json, research.json) but the phase reports failure.
+
+**Root cause:** `agent_runner.py:run_agent()` returns `(success=False, error_text)` when the SDK throws ANY exception (rate limit, timeout, network error) — even if the agent already created the target file before the error.
+
+**Fix pattern:** Always check file existence FIRST, regardless of the `success` flag:
+
+```python
+if target_file.exists():
+    result = validator.validate(target_file)
+    if result.valid:
+        if not success:
+            log("Agent errored but file is valid, accepting")
+        return PhaseResult(phase_name, True, ...)
+else:
+    error_detail = output[:200] if output else "unknown error"
+    errors.append(f"Agent did not create {target_file.name} ({error_detail})")
+```
+
+**Applies to:** `spec_phases.py`, `planning_phases.py`, `requirements_phases.py`
+
+### 3. Daemon status writer loop condition (Windows)
+
+**Symptom:** Status writer thread doesn't stop cleanly on shutdown.
+
+**Fix:** Use `while not daemon._stop_event.is_set()` (not `or` conditions). Also add retry for `temp_path.replace()` on Windows due to file locks from UI reading.
+
+### 4. Windows platform gotchas
+
+- **`subprocess.run()` instead of `os.execv()`** — `os.execv()` breaks Electron → Python connection on Windows
+- **Always `encoding='utf-8'`** for file reads — Windows defaults to system locale encoding
+- **File lock retry** — When replacing files that the UI may be reading, retry 2-3 times with 100ms delay
+
 ## Product Overview
 
 Auto Claude is a desktop application (+ CLI) where users describe a goal and AI agents autonomously handle planning, implementation, and QA validation. All work happens in isolated git worktrees so the main branch stays safe.
@@ -101,13 +158,46 @@ cd apps/frontend && npm install
 ### Backend
 ```bash
 cd apps/backend
-python spec_runner.py --interactive            # Create spec interactively
-python spec_runner.py --task "description"      # Create from task
+python runners/spec_runner.py --interactive            # Create spec interactively
+python runners/spec_runner.py --task "description"      # Create from task
 python run.py --spec 001                        # Run autonomous build
 python run.py --spec 001 --qa                   # Run QA validation
 python run.py --spec 001 --merge                # Merge completed build
 python run.py --list                            # List all specs
 ```
+
+### Daemon Automation (Full End-to-End)
+
+The daemon watches `.auto-claude/specs/` and auto-executes tasks with `status: "queue"`.
+
+```bash
+cd apps/backend
+
+# Step 1: Create spec (--no-build sets status to "queue" for daemon pickup)
+python runners/spec_runner.py --task "description" --project-dir /path/to/project --no-build
+
+# Step 2: Start daemon (watches specs/, auto-executes, writes daemon_status.json for UI)
+python runners/daemon_runner.py --project-dir /path/to/project \
+  --status-file /path/to/project/.auto-claude/daemon_status.json
+
+# Full auto pipeline (spec_runner creates spec + immediately executes + auto-merges)
+python runners/spec_runner.py --task "description" --project-dir /path --auto-merge
+```
+
+**Execution flow:**
+```
+spec_runner.py --no-build → creates spec (status: "queue")
+  → daemon detects new spec → executor.py spawns run.py --auto-merge
+    → planner → coder → QA reviewer → QA fixer (if needed) → auto-merge → done
+  → daemon_status.json updated → UI DaemonStatusWatcher detects → Kanban card moves
+```
+
+**Critical rules for AI agents:**
+- **NEVER manually create spec files** (spec.md, requirements.json, implementation_plan.json)
+- **Always use spec_runner.py** to create specs — it runs the full spec creation pipeline (gatherer → researcher → writer → critic)
+- **--no-build** flag: creates spec only, sets status to "queue" for daemon pickup
+- **--auto-merge** flag: auto-merges worktree to project after QA passes (no manual intervention)
+- **daemon_runner.py** is needed for the UI to show real-time task progress (writes daemon_status.json)
 
 ### Frontend
 ```bash
@@ -245,7 +335,7 @@ taskType="design" → Daemon → run.py → coder.py (planner agent)
 ```
 
 **Design task constraints:**
-- Max depth = 1 (child specs cannot create grandchild specs)
+- Max depth = 2 by default (configurable via `AUTO_CLAUDE_MAX_CHILD_DEPTH` env var). Design/architecture types blocked at depth >= 2 to prevent unbounded decomposition.
 - Child specs use 1-based index for `dependsOn` references (e.g., `"1"`, `"2"`)
 - The `SpecFactory` uses 2-pass dependency resolution to map internal refs to actual spec IDs
 - Design tasks skip plan validation (they don't produce phases/subtasks)

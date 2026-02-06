@@ -207,6 +207,11 @@ Environment Variables:
         action="store_true",
         help="Skip automatic QA validation after build completes",
     )
+    parser.add_argument(
+        "--auto-merge",
+        action="store_true",
+        help="Automatically merge to project after QA passes (no interactive prompt)",
+    )
 
     # Follow-up options
     parser.add_argument(
@@ -477,6 +482,7 @@ def _run_cli() -> None:
         skip_qa=args.skip_qa,
         force_bypass_approval=args.force,
         base_branch=args.base_branch,
+        auto_merge=args.auto_merge,
     )
 
 

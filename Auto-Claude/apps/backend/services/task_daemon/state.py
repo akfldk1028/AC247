@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -164,7 +165,50 @@ class StateManager:
 
     def are_dependencies_met(self, depends_on: list[str]) -> bool:
         with self._lock:
-            return all(dep in self._completed_set for dep in depends_on)
+            if not depends_on:
+                return True
+            return all(self._is_dep_met(dep) for dep in depends_on)
+
+    def _is_dep_met(self, dep: str) -> bool:
+        """Check if a single dependency is met.
+
+        Uses a 3-tier matching strategy so that unresolved or truncated
+        dependency references still match their completed spec IDs:
+
+        1. Exact match (fastest, covers resolved deps)
+        2. Number-prefix match: "002-core-calc" matches "002-core-calc-impl-arith..."
+           by checking if any completed spec shares the same leading number
+        3. Prefix/substring match: dep is a prefix of a completed spec ID
+        """
+        # 1. Exact match
+        if dep in self._completed_set:
+            return True
+
+        # 2. Number-prefix + slug-prefix match
+        #    e.g., "002-core-calculator-implementation" matches
+        #    "002-core-calculator-implementation-arithmetic-operatio"
+        num_match = re.match(r"^(\d+)", dep)
+        if num_match:
+            prefix = num_match.group(1).zfill(3)  # normalize to 3-digit
+            dep_lower = dep.lower()
+            for completed in self._completed_set:
+                completed_lower = completed.lower()
+                # Same number prefix AND dep is a prefix of (or equal to) completed
+                if completed_lower.startswith(prefix + "-"):
+                    if completed_lower.startswith(dep_lower):
+                        return True
+                    # Also match pure number refs: dep="002" matches "002-anything"
+                    if dep_lower == prefix:
+                        return True
+
+        # 3. General prefix match (no number prefix)
+        dep_lower = dep.lower()
+        if len(dep_lower) >= 3:  # avoid too-short matches
+            for completed in self._completed_set:
+                if completed.lower().startswith(dep_lower):
+                    return True
+
+        return False
 
     # -------------------------------------------------------------------------
     # Task hierarchy (thread-safe)

@@ -21,6 +21,7 @@ interface TaskContextEntry {
 
 const TERMINAL_EVENTS = new Set<string>([
   'QA_PASSED',
+  'MARK_DONE',
   'PLANNING_COMPLETE',
   'PLANNING_FAILED',
   'CODING_FAILED',

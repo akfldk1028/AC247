@@ -274,6 +274,11 @@ class TaskEventEmitter:
                 "review_reason": "errors",
                 "execution_phase": "failed",
             },
+            "MARK_DONE": {
+                "status": "done",
+                "xstate_state": "done",
+                "execution_phase": "complete",
+            },
         }
 
         if event_type not in event_status_map:

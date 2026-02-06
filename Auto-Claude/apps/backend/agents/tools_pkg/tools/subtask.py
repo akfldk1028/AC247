@@ -13,8 +13,51 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import os
+
 from core.file_utils import write_json_atomic
 from spec.validate_pkg.auto_fix import auto_fix_plan
+
+logger = logging.getLogger(__name__)
+
+# Maximum child spec nesting depth.
+# depth 0 = root design task, depth 1 = child, depth 2 = grandchild.
+# Default 2 (allows grandchildren). Override via AUTO_CLAUDE_MAX_CHILD_DEPTH env var.
+MAX_CHILD_DEPTH = int(os.environ.get("AUTO_CLAUDE_MAX_CHILD_DEPTH", "2"))
+
+# Task types that are NOT allowed beyond depth 1 (prevent recursive design explosion)
+DESIGN_ONLY_TYPES = {"design", "architecture"}
+
+
+def _calculate_task_depth(spec_dir: Path) -> int:
+    """Calculate nesting depth by walking up the parentTask chain.
+
+    Returns:
+        0 = root task (no parent)
+        1 = child of root
+        2 = grandchild
+        ...
+    """
+    depth = 0
+    current_dir = spec_dir
+    specs_parent = spec_dir.parent  # .auto-claude/specs/
+
+    for _ in range(10):  # safety limit
+        plan_file = current_dir / "implementation_plan.json"
+        if not plan_file.exists():
+            break
+        try:
+            with open(plan_file, encoding="utf-8") as f:
+                plan = json.load(f)
+            parent_id = plan.get("parentTask", plan.get("parent_task"))
+            if not parent_id:
+                break
+            depth += 1
+            current_dir = specs_parent / parent_id
+        except (json.JSONDecodeError, OSError):
+            break
+
+    return depth
 
 
 def _get_original_project_dir(project_dir: Path) -> Path:
@@ -281,32 +324,42 @@ Example:
                 ]
             }
 
-        # Depth guard: prevent grandchild creation (recursive explosion)
-        parent_plan_file = spec_dir / "implementation_plan.json"
-        if parent_plan_file.exists():
-            try:
-                with open(parent_plan_file, encoding="utf-8") as f:
-                    parent_plan = json.load(f)
-                existing_parent = parent_plan.get("parentTask", parent_plan.get("parent_task"))
-                if existing_parent:
-                    return {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": (
-                                    f"Error: Cannot create child spec from '{spec_dir.name}' "
-                                    f"because it is already a child of '{existing_parent}'. "
-                                    "Only top-level design tasks can create child specs."
-                                ),
-                            }
-                        ]
+        # Depth guard: limit nesting to MAX_CHILD_DEPTH (default 2)
+        current_depth = _calculate_task_depth(spec_dir)
+        child_depth = current_depth + 1
+        task_type = args.get("task_type", "impl")
+
+        if child_depth > MAX_CHILD_DEPTH:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Error: Cannot create child spec from '{spec_dir.name}' "
+                            f"(depth {current_depth}). Max nesting depth is {MAX_CHILD_DEPTH}. "
+                            "Flatten your task decomposition instead of nesting deeper."
+                        ),
                     }
-            except (json.JSONDecodeError, OSError):
-                pass
+                ]
+            }
+
+        # Block design/architecture types beyond depth 1 (prevent recursive explosion)
+        if child_depth >= 2 and task_type in DESIGN_ONLY_TYPES:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Error: Cannot create '{task_type}' child spec at depth {child_depth}. "
+                            "Design/architecture tasks can only be created at depth 0-1. "
+                            "Use 'impl', 'frontend', 'backend', etc. for deeper nesting."
+                        ),
+                    }
+                ]
+            }
 
         priority = args.get("priority", 2)
-        task_type = args.get("task_type", "impl")
-        depends_on = args.get("depends_on") or []
+        depends_on = args.get("depends_on") or args.get("dependsOn") or args.get("dependencies") or []
         files_to_modify = args.get("files_to_modify") or []
         acceptance_criteria = args.get("acceptance_criteria") or []
 
@@ -415,30 +468,41 @@ Example:
 
         parent_spec_id = spec_dir.name
 
-        # Depth guard: prevent grandchild creation (recursive explosion)
-        # If current task already has a parentTask, it's a child and cannot spawn more children
-        parent_plan_file = spec_dir / "implementation_plan.json"
-        if parent_plan_file.exists():
-            try:
-                with open(parent_plan_file, encoding="utf-8") as f:
-                    parent_plan = json.load(f)
-                existing_parent = parent_plan.get("parentTask", parent_plan.get("parent_task"))
-                if existing_parent:
-                    return {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": (
-                                    f"Error: Cannot create child specs from '{parent_spec_id}' "
-                                    f"because it is already a child of '{existing_parent}'. "
-                                    "Only top-level design tasks can create child specs "
-                                    "(max depth = 1 to prevent recursive explosion)."
-                                ),
-                            }
-                        ]
+        # Depth guard: limit nesting to MAX_CHILD_DEPTH (default 2)
+        current_depth = _calculate_task_depth(spec_dir)
+        child_depth = current_depth + 1
+
+        if child_depth > MAX_CHILD_DEPTH:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Error: Cannot create child specs from '{parent_spec_id}' "
+                            f"(depth {current_depth}). Max nesting depth is {MAX_CHILD_DEPTH}. "
+                            "Flatten your task decomposition instead of nesting deeper."
+                        ),
                     }
-            except (json.JSONDecodeError, OSError):
-                pass  # If we can't read the plan, allow (fail-open for robustness)
+                ]
+            }
+
+        # Block design/architecture types beyond depth 1
+        has_design_type = any(
+            s.get("task_type", "impl") in DESIGN_ONLY_TYPES for s in specs_list
+        )
+        if child_depth >= 2 and has_design_type:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Error: Cannot create 'design'/'architecture' child specs at depth {child_depth}. "
+                            "Design tasks can only be created at depth 0-1. "
+                            "Use 'impl', 'frontend', 'backend', etc. for deeper nesting."
+                        ),
+                    }
+                ]
+            }
 
         try:
             from services.spec_factory import SpecFactory

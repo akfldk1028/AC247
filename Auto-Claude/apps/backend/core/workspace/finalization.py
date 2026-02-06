@@ -6,7 +6,9 @@ Workspace Finalization
 Functions for finalizing workspaces and handling user choices after build completion.
 """
 
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ui import (
@@ -35,6 +37,7 @@ def finalize_workspace(
     spec_name: str,
     manager: WorktreeManager | None,
     auto_continue: bool = False,
+    auto_merge: bool = False,
 ) -> WorkspaceChoice:
     """
     Handle post-build workflow - let user decide what to do with changes.
@@ -49,6 +52,7 @@ def finalize_workspace(
         spec_name: Name of the spec that was built
         manager: The worktree manager (None if direct mode was used)
         auto_continue: If True, skip interactive prompts (UI mode)
+        auto_merge: If True, automatically merge without prompting (QA must have passed)
 
     Returns:
         WorkspaceChoice indicating what user wants to do
@@ -64,6 +68,12 @@ def finalize_workspace(
         print()
         print(box(content, width=60, style="heavy"))
         return WorkspaceChoice.MERGE  # Already merged
+
+    # Auto-merge mode: QA passed, merge immediately without prompting
+    if auto_merge:
+        print()
+        print(success(f"{icon(Icons.SUCCESS)} QA PASSED - Auto-merging to project..."))
+        return WorkspaceChoice.MERGE
 
     # In auto_continue mode (UI), skip interactive prompts
     # The worktree stays for the UI to manage
@@ -205,6 +215,8 @@ def handle_workspace_choice(
         if success_result:
             print()
             print_status("Your feature has been added to your project.", "success")
+            # Update implementation_plan.json to mark task as done
+            mark_plan_done(project_dir, spec_name)
         else:
             print()
             print_status("There was a conflict merging the changes.", "error")
@@ -256,6 +268,42 @@ def handle_workspace_choice(
         print("To see what was built:")
         print(muted(f"  python auto-claude/run.py --spec {spec_name} --review"))
         print()
+
+
+def mark_plan_done(project_dir: Path, spec_name: str) -> None:
+    """Update implementation_plan.json to mark task as done after successful merge.
+
+    Also emits MARK_DONE event to stdout so the frontend XState machine
+    transitions the Kanban card to the Done column in real-time.
+    """
+    from core.file_utils import write_json_atomic
+
+    spec_dir = project_dir / ".auto-claude" / "specs" / spec_name
+    plan_path = spec_dir / "implementation_plan.json"
+
+    if not plan_path.exists():
+        return
+
+    try:
+        with open(plan_path, encoding="utf-8") as f:
+            plan = json.load(f)
+
+        plan["status"] = "done"
+        plan["planStatus"] = "completed"
+        plan["xstateState"] = "done"
+        plan["executionPhase"] = "complete"
+        plan["reviewReason"] = None
+        plan["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        write_json_atomic(plan_path, plan, indent=2)
+
+        # Emit MARK_DONE event to stdout for frontend XState machine
+        from core.task_event import TaskEventEmitter
+
+        emitter = TaskEventEmitter.from_spec_dir(spec_dir)
+        emitter.emit("MARK_DONE")
+    except (OSError, json.JSONDecodeError):
+        pass
 
 
 def review_existing_build(project_dir: Path, spec_name: str) -> bool:

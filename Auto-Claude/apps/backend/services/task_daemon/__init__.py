@@ -54,6 +54,7 @@ from .types import (
     DaemonConfig,
     QUEUE_STATUSES,
     NO_START_STATUSES,
+    COMPLETED_STATUSES,
     PLAN_MODE_TASK_TYPES,
 )
 from .watcher import SpecsWatcher, check_watchdog_available
@@ -297,7 +298,12 @@ class TaskDaemon:
     # -------------------------------------------------------------------------
 
     def _scan_existing_tasks(self) -> None:
-        """Scan for existing tasks and queue them."""
+        """Scan for existing tasks and queue them.
+
+        Also discovers externally-completed tasks (e.g., completed by a
+        previous daemon instance or manual execution) and adds them to
+        _completed_set so that dependency checks work correctly.
+        """
         if not self.specs_dir.exists():
             return
 
@@ -307,6 +313,7 @@ class TaskDaemon:
 
         self._logger.info("Scanning existing specs...")
         queued_count = 0
+        discovered_completed = 0
 
         for spec_dir in sorted(self.specs_dir.iterdir()):
             if not spec_dir.is_dir() or spec_dir.name.startswith("."):
@@ -320,7 +327,17 @@ class TaskDaemon:
                     if status in QUEUE_STATUSES:
                         self._enqueue_task(spec_dir.name, spec_dir, plan)
                         queued_count += 1
+                    elif status in COMPLETED_STATUSES:
+                        # Track externally-completed tasks so dependency
+                        # checks work even after daemon restart
+                        if not self._state_manager.is_completed(spec_dir.name):
+                            self._state_manager.mark_completed(spec_dir.name)
+                            discovered_completed += 1
 
+        if discovered_completed:
+            self._logger.info(
+                f"Discovered {discovered_completed} externally-completed tasks"
+            )
         self._logger.info(f"Scan complete: {queued_count} tasks queued")
 
     def _repair_dependencies(self) -> None:
@@ -490,10 +507,46 @@ class TaskDaemon:
                 self._start_task(next_task)
 
     def _get_next_ready_task(self) -> QueuedTask | None:
-        """Get next task with dependencies met."""
+        """Get next task with dependencies met.
+
+        Also cleans up stale queue entries: tasks whose plan status has
+        changed externally (e.g., completed by another process) are removed
+        from the queue and tracked as completed if appropriate.
+        """
+        stale_indices = []
+        ready_index = None
+
         for i, task in enumerate(self.task_queue):
-            if self._state_manager.are_dependencies_met(task.depends_on):
-                return self.task_queue.pop(i)
+            # Re-read plan to detect externally-completed tasks
+            plan = self._load_plan(task.spec_dir)
+            if plan:
+                status = plan.get("status", "").lower()
+                if status in COMPLETED_STATUSES:
+                    # Task was completed externally — remove from queue
+                    stale_indices.append(i)
+                    if not self._state_manager.is_completed(task.spec_id):
+                        self._state_manager.mark_completed(task.spec_id)
+                    self._logger.info(
+                        f"Removed stale queue entry: {task.spec_id} (status={status})"
+                    )
+                    continue
+                if status in NO_START_STATUSES:
+                    # Already running or in error — skip but don't remove
+                    # (might be recovering or externally managed)
+                    continue
+
+            if ready_index is None and self._state_manager.are_dependencies_met(task.depends_on):
+                ready_index = i
+
+        # Remove stale entries (reverse order to preserve indices)
+        for idx in reversed(stale_indices):
+            self.task_queue.pop(idx)
+            # Adjust ready_index if it was shifted
+            if ready_index is not None and idx < ready_index:
+                ready_index -= 1
+
+        if ready_index is not None:
+            return self.task_queue.pop(ready_index)
         return None
 
     # -------------------------------------------------------------------------
@@ -507,6 +560,23 @@ class TaskDaemon:
 
         with self._lock:
             if spec_id in self.running_tasks:
+                return False
+
+        # Re-read plan status before spawning — another process may have
+        # completed this task while it was waiting in the queue
+        plan = self._load_plan(spec_dir)
+        if plan:
+            current_status = plan.get("status", "").lower()
+            if current_status in COMPLETED_STATUSES:
+                self._logger.info(
+                    f"Skipping {spec_id}: already completed (status={current_status})"
+                )
+                self._state_manager.mark_completed(spec_id)
+                return False
+            if current_status not in QUEUE_STATUSES and current_status not in ("in_progress",):
+                self._logger.info(
+                    f"Skipping {spec_id}: unexpected status '{current_status}'"
+                )
                 return False
 
         execution_mode = self._executor.get_execution_mode(queued_task.task_type)
@@ -627,7 +697,7 @@ class TaskDaemon:
                     # (create_batch_child_specs sets parent to "complete")
                     current_plan = self._load_plan(state.spec_dir)
                     current_status = (current_plan or {}).get("status", "").lower()
-                    if current_status != "complete":
+                    if current_status not in ("complete", "done"):
                         self._update_plan_status(state.spec_dir, "human_review", "human_review")
                 else:
                     # Don't overwrite "complete" even on non-zero exit.

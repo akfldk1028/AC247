@@ -3,7 +3,9 @@ name: s3-feature
 description: |
   S3 새 기능 개발 워크플로우. Feature-First 구조로 파일 생성, Freezed 모델, Riverpod 상태관리 포함.
   사용 시점: (1) 새 기능 추가 시, (2) 새 화면 개발 시, (3) API 연동 기능 구현 시
+  사용 금지: 기존 기능 수정, 단순 UI 수정, 버그 수정, 리팩토링
 argument-hint: "[기능 설명]"
+allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 
 # S3 Feature Development Skill

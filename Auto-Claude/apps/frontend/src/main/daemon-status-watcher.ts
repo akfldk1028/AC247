@@ -1,5 +1,6 @@
 import chokidar, { type FSWatcher } from 'chokidar';
 import { readFileSync, existsSync } from 'fs';
+import path from 'path';
 import type { BrowserWindow } from 'electron';
 import { fileWatcher } from './file-watcher';
 import { safeSendToRenderer } from './ipc-handlers/utils';
@@ -37,6 +38,8 @@ interface ProjectWatcher {
   rendererReady: boolean;
   readyTimer: ReturnType<typeof setTimeout> | null;
   resendTimer: ReturnType<typeof setInterval> | null;
+  /** All spec IDs ever seen (running + queued) — used to detect new specs */
+  allKnownSpecIds: Set<string>;
 }
 
 const daemonManagedTasks = new Map<string, string>();
@@ -102,6 +105,7 @@ export class DaemonStatusWatcher {
       rendererReady: false,
       readyTimer: null,
       resendTimer: null,
+      allKnownSpecIds: new Set(),
     };
 
     // Delay initial processing to let renderer mount first
@@ -169,6 +173,7 @@ export class DaemonStatusWatcher {
 
     pw.watchedTasks.clear();
     pw.previousRunningIds.clear();
+    pw.allKnownSpecIds.clear();
     pw.previousCompleted = 0;
     pw.rendererReady = false;
 
@@ -196,9 +201,13 @@ export class DaemonStatusWatcher {
       return;
     }
 
+    // Collect ALL spec IDs from both running and queued tasks
+    const allCurrentIds = new Set<string>();
     const currentIds = new Set<string>();
+
     for (const [specId, info] of Object.entries(status.running_tasks || {})) {
       currentIds.add(specId);
+      allCurrentIds.add(specId);
       daemonManagedTasks.set(specId, info.last_update || '');
 
       // Always re-send status for running tasks so renderer stays in sync.
@@ -221,11 +230,34 @@ export class DaemonStatusWatcher {
       }
     }
 
-    // Tasks that were running but are no longer → completed or stopped
+    // Send status for queued tasks so they appear in the Kanban board
+    for (const queuedTask of status.queued_tasks || []) {
+      allCurrentIds.add(queuedTask.spec_id);
+      if (pw.rendererReady) {
+        this.sendStatusChange(queuedTask.spec_id, 'queue', pw.projectId);
+      }
+    }
+
+    // Detect newly discovered specs and trigger TASK_LIST refresh
+    // This ensures child specs created by the daemon appear in the UI
+    let hasNewSpecs = false;
+    for (const specId of allCurrentIds) {
+      if (!pw.allKnownSpecIds.has(specId)) {
+        hasNewSpecs = true;
+        pw.allKnownSpecIds.add(specId);
+      }
+    }
+    if (hasNewSpecs && pw.rendererReady) {
+      this.notifyNewSpecs(pw);
+    }
+
+    // Tasks that were running but are no longer → read actual status from plan
     for (const specId of pw.previousRunningIds) {
       if (!currentIds.has(specId)) {
         if (status.stats.completed > pw.previousCompleted) {
-          this.sendStatusChange(specId, 'human_review', pw.projectId);
+          // Read actual status from implementation_plan.json instead of hardcoding
+          const actualStatus = this.readPlanStatus(specId, pw) ?? 'human_review';
+          this.sendStatusChange(specId, actualStatus, pw.projectId);
         } else {
           this.sendStatusChange(specId, 'error', pw.projectId);
         }
@@ -259,6 +291,43 @@ export class DaemonStatusWatcher {
       },
       projectId,
     );
+  }
+
+  private readPlanStatus(specId: string, pw: ProjectWatcher): string | null {
+    // Construct plan path: daemon_status.json is in .auto-claude/, specs are in .auto-claude/specs/
+    const autoClaudeDir = path.dirname(pw.statusFilePath);
+    const planPath = path.join(autoClaudeDir, 'specs', specId, 'implementation_plan.json');
+    try {
+      if (!existsSync(planPath)) return null;
+      const content = readFileSync(planPath, 'utf-8');
+      const plan = JSON.parse(content);
+      if (plan.xstateState === 'done' || plan.status === 'done') return 'done';
+      if (plan.status) return plan.status;
+    } catch {
+      // Fall through
+    }
+    return null;
+  }
+
+  /**
+   * Notify renderer that new specs were discovered by the daemon.
+   * Sends 'specs:new-spec' IPC so the renderer refreshes the task list.
+   * This is the daemon-side equivalent of FileWatcher's 'new-spec' event.
+   */
+  private notifyNewSpecs(pw: ProjectWatcher): void {
+    if (!this.getMainWindow) return;
+    const mainWindow = this.getMainWindow();
+    if (!mainWindow) return;
+    // Derive projectPath from daemon_status.json location
+    const autoClaudeDir = path.dirname(pw.statusFilePath);
+    const projectPath = path.dirname(autoClaudeDir);
+    console.log(`[DaemonStatusWatcher] New specs detected, triggering task list refresh for project: ${pw.projectId}`);
+    // Use the same IPC channel as FileWatcher to trigger loadTasks(forceRefresh: true)
+    mainWindow.webContents.send('specs:new-spec', {
+      projectPath,
+      specId: '_daemon_refresh',
+      specDir: '',
+    });
   }
 
   private sendStatusChange(specId: string, status: string, projectId?: string): void {

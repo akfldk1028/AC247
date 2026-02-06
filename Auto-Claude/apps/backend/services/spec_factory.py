@@ -277,12 +277,19 @@ class SpecFactory:
             ref_to_actual[actual_id] = actual_id                       # exact match
             if actual_slug:
                 ref_to_actual[actual_slug] = actual_id                 # "scientific-calculator-mode-implement..."
+            # Also register NNN-task_slug pattern for agents that use "002-backend-api" style refs
+            if task_slug:
+                ref_to_actual[f"{internal_num:03d}-{task_slug}"] = actual_id  # "002-backend-api-module"
 
         # Now resolve each spec's depends_on
         for i, spec_dir in enumerate(created_specs):
             spec_def = specs[i] if i < len(specs) else {}
+            # Check both snake_case and camelCase keys (agents may use either)
             original_deps = self._normalize_list_field(
-                spec_def.get("depends_on") or []
+                spec_def.get("depends_on")
+                or spec_def.get("dependsOn")
+                or spec_def.get("dependencies")
+                or []
             )
             if not original_deps:
                 continue
@@ -548,6 +555,21 @@ class SpecFactory:
                 ref_to_actual[actual_id] = actual_id
                 if actual_slug:
                     ref_to_actual[actual_slug] = actual_id
+
+                # Also register NNN-slug derived from the spec's task description
+                # for matching "002-backend-api" style refs
+                req_path = spec_dir / "requirements.json"
+                if req_path.exists():
+                    try:
+                        req = json.loads(req_path.read_text(encoding="utf-8"))
+                        task = req.get("task", "")
+                        task_slug = re.sub(r'[^a-z0-9\s-]', '', task.lower())
+                        task_slug = re.sub(r'[\s_]+', '-', task_slug)
+                        task_slug = re.sub(r'-+', '-', task_slug).strip('-')
+                        if task_slug:
+                            ref_to_actual[f"{internal_num:03d}-{task_slug}"] = actual_id
+                    except (json.JSONDecodeError, OSError):
+                        pass
 
             # Now resolve each sibling's dependsOn
             for spec_dir in siblings:

@@ -78,12 +78,19 @@ class PlanningPhaseMixin:
                 phase_name="planning",
             )
 
-            if success and plan_file.exists():
+            # Validate file if it exists, even when agent session errored
+            if plan_file.exists():
                 result = self.spec_validator.validate_implementation_plan()
                 if result.valid:
-                    self.ui.print_status(
-                        "Created valid implementation_plan.json via agent", "success"
-                    )
+                    if not success:
+                        self.ui.print_status(
+                            "Agent session errored but plan is valid, accepting",
+                            "warning",
+                        )
+                    else:
+                        self.ui.print_status(
+                            "Created valid implementation_plan.json via agent", "success"
+                        )
                     return PhaseResult("planning", True, [str(plan_file)], [], attempt)
                 else:
                     if auto_fix_plan(self.spec_dir):
@@ -98,7 +105,10 @@ class PlanningPhaseMixin:
                     errors.append(f"Agent attempt {attempt + 1}: {result.errors}")
                     self.ui.print_status("Plan created but invalid", "error")
             else:
-                errors.append(f"Agent attempt {attempt + 1}: Did not create plan file")
+                error_detail = output[:200] if output else "unknown error"
+                errors.append(
+                    f"Agent attempt {attempt + 1}: Did not create plan file ({error_detail})"
+                )
 
         return PhaseResult("planning", False, [], errors, MAX_RETRIES)
 

@@ -86,6 +86,48 @@ The refactoring uses the **Mixin Pattern** to separate concerns:
 5. **Extensibility**: New phases can be added without modifying existing code
 6. **Type Safety**: Proper type hints throughout
 
+## Critical Development Gotchas
+
+> **MUST READ before modifying any phase code.**
+
+### Gotcha 1: Stale `spec_dir` after spec folder rename
+
+The orchestrator renames the spec folder after the requirements phase (`001-pending` → `001-meaningful-name`). The `PhaseExecutor` stores `spec_dir`, `spec_validator`, and `task_logger` as instance attributes.
+
+**If you don't update these after rename, all subsequent phases check the WRONG path.**
+
+The fix is in `orchestrator.py` — after `_rename_spec_dir_from_requirements()`, all references are synced. **Never add a new stateful reference to spec_dir without also updating it in the orchestrator's post-rename block.**
+
+### Gotcha 2: Agent `success=False` does NOT mean file wasn't created
+
+`agent_runner.py:run_agent()` returns `(False, error_text)` when the SDK throws ANY exception — even if the agent already created the target file. Common causes: rate limit hit after file write, timeout after file write, network error after file write.
+
+**Rule:** In ALL phase methods that use agents, check file existence FIRST:
+
+```python
+# CORRECT pattern:
+if target_file.exists():
+    result = validator.validate(target_file)
+    if result.valid:
+        return PhaseResult(phase, True, ...)  # Accept even if success=False
+else:
+    errors.append(f"File not created ({output[:200]})")
+
+# WRONG pattern:
+if not success:
+    errors.append("Agent failed")  # ← NEVER do this without checking file
+```
+
+This pattern is implemented in: `spec_phases.py`, `planning_phases.py`, `requirements_phases.py`.
+
+### Gotcha 3: Phase retry with existing files
+
+When a phase retries (up to `MAX_RETRIES=3`), the file from a previous attempt may already exist. The file-existence check handles this naturally — if attempt 1 created a valid file but returned `success=False`, attempt 2's file-existence check will find it and succeed.
+
+### Gotcha 4: Error messages must include detail
+
+When an agent fails, include `output[:200]` in the error message. Without this, debugging is impossible because "Agent did not create spec.md" gives no clue about what actually went wrong.
+
 ## File Size Comparison
 
 - **Original**: 720 lines in single file

@@ -61,6 +61,7 @@ def handle_build_command(
     skip_qa: bool,
     force_bypass_approval: bool,
     base_branch: str | None = None,
+    auto_merge: bool = False,
 ) -> None:
     """
     Handle the main build command.
@@ -77,6 +78,7 @@ def handle_build_command(
         skip_qa: Skip automatic QA validation
         force_bypass_approval: Force bypass approval check
         base_branch: Base branch for worktree creation (default: current branch)
+        auto_merge: Automatically merge after QA passes (no interactive prompt)
     """
     # Lazy imports to avoid loading heavy modules
     from agent import run_autonomous_agent, sync_spec_to_source
@@ -293,7 +295,7 @@ def handle_build_command(
                 print(f"Resume: python auto-claude/run.py --spec {spec_dir.name} --qa")
                 qa_approved = False
 
-        # Post-build finalization (only for isolated sequential mode)
+        # Post-build finalization
         # This happens AFTER QA validation so the worktree still exists
         if worktree_manager:
             choice = finalize_workspace(
@@ -301,10 +303,15 @@ def handle_build_command(
                 spec_dir.name,
                 worktree_manager,
                 auto_continue=auto_continue,
+                auto_merge=auto_merge and qa_approved,
             )
             handle_workspace_choice(
                 choice, project_dir, spec_dir.name, worktree_manager
             )
+        elif qa_approved:
+            # Direct mode: no worktree to merge, but mark plan as done
+            from core.workspace.finalization import mark_plan_done
+            mark_plan_done(project_dir, spec_dir.name)
 
     except KeyboardInterrupt:
         _handle_build_interrupt(

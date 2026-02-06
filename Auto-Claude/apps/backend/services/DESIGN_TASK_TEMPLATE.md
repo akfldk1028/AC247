@@ -138,9 +138,11 @@ Daemon: "complete" 보존 → child specs pick up
 - git init 되지 않은 프로젝트에서는 worktree 생성 실패 가능
 - 실패 시 DIRECT 모드로 fallback됨
 
-### 6. Child spec depth = 최대 1
-- Child spec이 또 다른 child spec을 생성할 수 없음 (grandchild 금지)
-- depth guard가 parentTask 필드로 체크
+### 6. Child spec depth = 최대 2 (설정 가능)
+- 기본값: 2단계 (root → child → grandchild 허용)
+- `AUTO_CLAUDE_MAX_CHILD_DEPTH` 환경변수로 조정 가능
+- depth guard가 parentTask 체인을 따라 올라가며 계산
+- depth >= 2에서는 design/architecture 타입 생성 불가 (무한 분해 방지)
 
 ### 7. MCP tool 접근은 run.py에서만 가능
 - Claude CLI 직접 실행으로는 MCP tool 접근 불가

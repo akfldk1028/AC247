@@ -155,6 +155,9 @@ export class AgentManager extends EventEmitter {
       args.push('--auto-approve');
     }
 
+    // Auto-merge: spec_runner passes this to run.py for automatic worktree merge after QA
+    args.push('--auto-merge');
+
     // Pass model and thinking level configuration
     // For auto profile, use phase-specific config; otherwise use single model/thinking
     if (metadata?.isAutoProfile && metadata.phaseModels && metadata.phaseThinking) {
@@ -234,6 +237,9 @@ export class AgentManager extends EventEmitter {
 
     // Always use auto-continue when running from UI (non-interactive)
     args.push('--auto-continue');
+
+    // Auto-merge: Automatically merge worktree after QA passes
+    args.push('--auto-merge');
 
     // Force: When user starts a task from the UI, that IS their approval
     args.push('--force');

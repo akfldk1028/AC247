@@ -108,6 +108,39 @@ logs = load_task_logs(spec_dir)
 active = get_active_phase(spec_dir)
 ```
 
+## Critical Warning: Path Updates After Spec Directory Rename
+
+The spec pipeline renames the spec directory after the requirements phase (e.g., `001-pending` → `001-calculator-class`). **TaskLogger stores `spec_dir` and `log_file` as instance attributes**, so it will continue writing to the OLD path unless explicitly updated.
+
+### How to update after rename
+
+Use the `update_task_logger_path()` utility:
+
+```python
+from task_logger import get_task_logger
+
+# After renaming spec_dir:
+task_logger = get_task_logger(new_spec_dir)  # Creates new logger at new path
+```
+
+Or update the existing logger:
+
+```python
+from task_logger.utils import update_task_logger_path
+
+update_task_logger_path(new_spec_dir)  # Updates global logger path
+```
+
+### Why this matters
+
+If the TaskLogger is NOT updated after rename:
+1. Log files are written to the old `001-pending/` directory
+2. This **recreates** the old directory on disk after it was renamed
+3. Subsequent phases see TWO directories and get confused
+4. Phase status checks may read from the wrong directory
+
+**The orchestrator (`spec/pipeline/orchestrator.py`) handles this** — see the post-rename sync block. But if you create a NEW TaskLogger reference anywhere else in the pipeline, you must ensure it uses the current `spec_dir`.
+
 ## Design Principles
 
 ### Separation of Concerns

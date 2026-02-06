@@ -224,18 +224,28 @@ Output your findings to research.json.
                 phase_name="research",
             )
 
-            if success and research_file.exists():
-                self.ui.print_status("Created research.json", "success")
+            # Accept file if it exists, even when agent session errored
+            if research_file.exists():
+                if not success:
+                    self.ui.print_status(
+                        "Agent session errored but research.json created, accepting",
+                        "warning",
+                    )
+                else:
+                    self.ui.print_status("Created research.json", "success")
                 return PhaseResult("research", True, [str(research_file)], [], attempt)
 
-            if success and not research_file.exists():
+            if success:
                 validator.create_minimal_research(
                     self.spec_dir,
                     reason="Agent completed but created no findings",
                 )
                 return PhaseResult("research", True, [str(research_file)], [], attempt)
 
-            errors.append(f"Attempt {attempt + 1}: Research agent failed")
+            error_detail = output[:200] if output else "unknown error"
+            errors.append(
+                f"Attempt {attempt + 1}: Research agent failed ({error_detail})"
+            )
 
         validator.create_minimal_research(
             self.spec_dir,

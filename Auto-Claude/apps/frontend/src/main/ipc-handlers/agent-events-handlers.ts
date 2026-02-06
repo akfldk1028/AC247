@@ -293,9 +293,18 @@ export function registerAgenteventsHandlers(
   const scanDaemonStatusFiles = () => {
     const allProjects = projectStore.getProjects();
     for (const p of allProjects) {
-      const statusPath = path.join(p.path, 'daemon_status.json');
-      if (existsSync(statusPath)) {
-        daemonStatusWatcher.start(statusPath, getMainWindow, p.id);
+      // Check both root and .auto-claude/ paths for daemon_status.json
+      // daemon_runner.py typically writes to .auto-claude/daemon_status.json
+      const autoBuildDir = p.autoBuildPath || '.auto-claude';
+      const candidates = [
+        path.join(p.path, autoBuildDir, 'daemon_status.json'),
+        path.join(p.path, 'daemon_status.json'),
+      ];
+      for (const statusPath of candidates) {
+        if (existsSync(statusPath)) {
+          daemonStatusWatcher.start(statusPath, getMainWindow, p.id);
+          break;
+        }
       }
     }
   };

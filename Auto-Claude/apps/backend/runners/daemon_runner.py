@@ -71,6 +71,8 @@ _BACKEND_DIR = Path(__file__).parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+from services.task_daemon.types import DaemonConfig
+
 
 def log(level: str, message: str, **kwargs) -> None:
     """Log a message with timestamp."""
@@ -158,8 +160,8 @@ Claude CLI Features:
     parser.add_argument(
         "--max-concurrent",
         type=int,
-        default=1,
-        help="Maximum parallel tasks (default: 1, use 2-4 for large projects)",
+        default=DaemonConfig.MAX_CONCURRENT_TASKS,
+        help=f"Maximum parallel tasks (default: {DaemonConfig.MAX_CONCURRENT_TASKS})",
     )
 
     parser.add_argument(
@@ -297,8 +299,7 @@ Claude CLI Features:
         import threading
 
         def write_status_periodically():
-            # Use public is_healthy() instead of private _stop_event (BUG 28)
-            while daemon.is_healthy() or not daemon._stop_event.is_set():
+            while not daemon._stop_event.is_set():
                 temp_path = args.status_file.with_suffix(".tmp")
                 try:
                     status = daemon.get_status()
@@ -306,10 +307,17 @@ Claude CLI Features:
 
                     with open(temp_path, "w", encoding="utf-8") as f:
                         json.dump(status, f, indent=2)
-                    temp_path.replace(args.status_file)
+                    # Retry replace on Windows file lock
+                    for attempt in range(3):
+                        try:
+                            temp_path.replace(args.status_file)
+                            break
+                        except PermissionError:
+                            if attempt < 2:
+                                import time
+                                time.sleep(0.1)
                 except Exception as e:
                     log("warning", f"Failed to write status file: {e}")
-                    # Clean up temp file on failure (BUG 29)
                     try:
                         if temp_path.exists():
                             temp_path.unlink()
@@ -317,8 +325,6 @@ Claude CLI Features:
                         pass
 
                 daemon._stop_event.wait(timeout=10)
-                if daemon._stop_event.is_set():
-                    break
 
         status_thread = threading.Thread(
             target=write_status_periodically,

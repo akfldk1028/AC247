@@ -89,7 +89,7 @@ QUEUE_STATUSES = frozenset({"queue", "backlog", "queued"})
 
 # Task statuses that indicate task is already running or completed
 RUNNING_STATUSES = frozenset({"in_progress", "ai_review", "human_review"})
-COMPLETED_STATUSES = frozenset({"done", "completed", "merged", "pr_created"})
+COMPLETED_STATUSES = frozenset({"done", "complete", "completed", "merged", "pr_created"})
 ERROR_STATUSES = frozenset({"error", "failed", "stuck"})
 
 # All statuses that should NOT trigger auto-start
@@ -227,7 +227,7 @@ class DaemonConfig:
     STUCK_TIMEOUT_SECONDS = 600
     CHECK_INTERVAL_SECONDS = 30
     MAX_RECOVERY_ATTEMPTS = 3
-    MAX_CONCURRENT_TASKS = 1
+    MAX_CONCURRENT_TASKS = 3
     STATE_FILE_NAME = ".daemon_state.json"
     WORKTREE_DIR_NAME = ".worktrees"
     DEBOUNCE_SECONDS = 2.0

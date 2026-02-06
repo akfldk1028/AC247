@@ -424,6 +424,7 @@ class TaskExecutor:
             "--spec", spec_id,
             "--project-dir", str(work_dir),
             "--auto-continue",
+            "--auto-merge",  # automatically merge worktree after QA passes
             "--force",  # bypass approval check for daemon (24/7 unattended)
         ]
 

@@ -24,9 +24,15 @@ class SpecPhaseMixin:
         plan_file = self.spec_dir / "implementation_plan.json"
 
         if spec_file.exists() and plan_file.exists():
-            self.ui.print_status("Quick spec already exists", "success")
-            return PhaseResult(
-                "quick_spec", True, [str(spec_file), str(plan_file)], [], 0
+            # Validate existing files before accepting them
+            spec_result = self.spec_validator.validate_spec_document()
+            if spec_result.valid:
+                self.ui.print_status("Quick spec already exists and is valid", "success")
+                return PhaseResult(
+                    "quick_spec", True, [str(spec_file), str(plan_file)], [], 0
+                )
+            self.ui.print_status(
+                "Quick spec exists but has issues, regenerating...", "warning"
             )
 
         errors = []
@@ -53,17 +59,47 @@ Create:
                 phase_name="quick_spec",
             )
 
-            if success and spec_file.exists():
+            # Validate file if it exists, even when agent session errored
+            # (agent may create the file then SDK throws rate limit/timeout)
+            if spec_file.exists():
                 # Create minimal plan if agent didn't
                 if not plan_file.exists():
                     writer.create_minimal_plan(self.spec_dir, self.task_description)
 
-                self.ui.print_status("Quick spec created", "success")
+                # Validate spec document
+                spec_result = self.spec_validator.validate_spec_document()
+                if not spec_result.valid:
+                    errors.append(
+                        f"Attempt {attempt + 1}: Spec invalid - {spec_result.errors}"
+                    )
+                    self.ui.print_status(
+                        f"Spec created but invalid: {spec_result.errors}", "warning"
+                    )
+                    continue
+
+                # Validate implementation plan; fallback to minimal if invalid
+                plan_result = self.spec_validator.validate_implementation_plan()
+                if not plan_result.valid:
+                    self.ui.print_status(
+                        "Plan invalid, creating minimal plan as fallback", "warning"
+                    )
+                    writer.create_minimal_plan(self.spec_dir, self.task_description)
+
+                if not success:
+                    self.ui.print_status(
+                        "Agent session errored but quick spec is valid, accepting",
+                        "warning",
+                    )
+                else:
+                    self.ui.print_status("Quick spec created", "success")
                 return PhaseResult(
                     "quick_spec", True, [str(spec_file), str(plan_file)], [], attempt
                 )
 
-            errors.append(f"Attempt {attempt + 1}: Quick spec agent failed")
+            error_detail = output[:200] if output else "unknown error"
+            errors.append(
+                f"Attempt {attempt + 1}: Quick spec agent failed ({error_detail})"
+            )
 
         return PhaseResult("quick_spec", False, [], errors, MAX_RETRIES)
 
@@ -91,10 +127,18 @@ Create:
                 phase_name="spec_writing",
             )
 
-            if success and spec_file.exists():
+            # Validate file if it exists, even when agent session errored
+            # (agent may create the file then SDK throws rate limit/timeout)
+            if spec_file.exists():
                 result = self.spec_validator.validate_spec_document()
                 if result.valid:
-                    self.ui.print_status("Created valid spec.md", "success")
+                    if not success:
+                        self.ui.print_status(
+                            "Agent session errored but spec.md is valid, accepting",
+                            "warning",
+                        )
+                    else:
+                        self.ui.print_status("Created valid spec.md", "success")
                     return PhaseResult(
                         "spec_writing", True, [str(spec_file)], [], attempt
                     )
@@ -106,7 +150,10 @@ Create:
                         f"Spec created but invalid: {result.errors}", "error"
                     )
             else:
-                errors.append(f"Attempt {attempt + 1}: Agent did not create spec.md")
+                error_detail = output[:200] if output else "unknown error"
+                errors.append(
+                    f"Attempt {attempt + 1}: Agent did not create spec.md ({error_detail})"
+                )
 
         return PhaseResult("spec_writing", False, [], errors, MAX_RETRIES)
 
