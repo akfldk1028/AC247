@@ -1,0 +1,24 @@
+# Active working projects (managed by Auto-Claude)
+calculator/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+nul
+SKILLS_DEVELOPMENT_PLAN.md

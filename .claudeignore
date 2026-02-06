@@ -1,0 +1,44 @@
+# Dependencies
+Auto-Claude/node_modules/
+Auto-Claude/apps/backend/.venv/
+Auto-Claude/apps/frontend/node_modules/
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/build/
+calculator/.auto-claude/worktrees/
+
+# Build artifacts
+Auto-Claude/apps/frontend/dist/
+Auto-Claude/apps/frontend/out/
+Auto-Claude/dist/
+*.exe
+*.apk
+*.so
+*.dll
+*.dmg
+*.app
+*.asar
+
+# Large binary/data
+*.bin
+*.dat
+*.pak
+*.node
+
+# Git internals
+.git/
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
