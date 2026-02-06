@@ -1,0 +1,64 @@
+{
+  "$schema": "Custom Agent Configuration - Auto-registered into AGENT_CONFIGS",
+  "version": "1.0.0",
+  "description": "S3 프로젝트용 커스텀 에이전트 설정. prompts/ 폴더의 .md 파일과 매핑됨.",
+
+  "agents": {
+    "s3_backend_auth": {
+      "prompt_file": "s3_backend_auth.md",
+      "description": "S3 Backend Auth Agent - JWT, OAuth, Session 구현",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "s3_backend_data": {
+      "prompt_file": "s3_backend_data.md",
+      "description": "S3 Backend Data Agent - CRUD, Query, Cache 구현",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "s3_backend_notification": {
+      "prompt_file": "s3_backend_notification.md",
+      "description": "S3 Backend Notification Agent - Push, Email, SMS 구현",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "s3_ai_assistant": {
+      "prompt_file": "s3_ai_assistant.md",
+      "description": "S3 AI Assistant Agent - LLM 기반 어시스턴트 구현",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "high"
+    },
+    "s3_ai_analyzer": {
+      "prompt_file": "s3_ai_analyzer.md",
+      "description": "S3 AI Analyzer Agent - 데이터 분석, 요약, 분류 구현",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "high"
+    },
+    "s3_ai_recommender": {
+      "prompt_file": "s3_ai_recommender.md",
+      "description": "S3 AI Recommender Agent - 추천 시스템 구현",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "high"
+    },
+    "s3_frontend_auth": {
+      "prompt_file": "s3_frontend_auth.md",
+      "description": "S3 Frontend Auth Agent - Flutter 인증 UI 구현",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "s3_frontend_data": {
+      "prompt_file": "s3_frontend_data.md",
+      "description": "S3 Frontend Data Agent - Flutter 데이터 동기화 구현",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    }
+  }
+}
