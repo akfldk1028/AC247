@@ -1,0 +1,13 @@
+{
+  "status": "queue",
+  "planStatus": "queue",
+  "xstateState": "backlog",
+  "executionPhase": "backlog",
+  "taskType": "design",
+  "priority": 1,
+  "complexity": "standard",
+  "created_at": "2026-02-05T10:00:00Z",
+  "updated_at": "2026-02-05T10:00:00Z",
+  "phases": [],
+  "subtasks": []
+}

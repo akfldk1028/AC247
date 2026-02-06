@@ -1,0 +1,9 @@
+{
+  "task_description": "Flutter Calculator App 개발",
+  "files_to_modify": [
+    "lib/main.dart",
+    "lib/features/calculator/",
+    "lib/core/theme/"
+  ],
+  "created_at": "2026-02-05T10:00:00Z"
+}
