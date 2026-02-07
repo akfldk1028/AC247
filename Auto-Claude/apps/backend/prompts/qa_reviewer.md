@@ -71,6 +71,54 @@ Wait for all services to be healthy before proceeding.
 
 ---
 
+## PHASE 2.5: BUILD VERIFICATION
+
+**CRITICAL**: Code that doesn't build is never acceptable. Run the build BEFORE tests.
+
+### Step 1: Get build command
+
+```bash
+# Check if services have build commands
+cat project_index.json | jq '.services[] | select(.build_command != null) | {name: .name, build_command: .build_command}'
+```
+
+### Step 2: Run build
+
+```bash
+# Execute build command for each service that has one
+# Examples:
+#   npm run build (Node.js/TypeScript)
+#   flutter build apk/web (Flutter)
+#   cargo build (Rust)
+#   go build ./... (Go)
+#   Unity -batchmode -nographics -projectPath . -executeMethod BuildScript.Build -quit -logFile build.log (Unity)
+```
+
+### Step 3: If build fails — use Context7 to diagnose
+
+```
+Tool: mcp__context7__resolve-library-id
+Input: { "libraryName": "[framework causing error]" }
+
+Tool: mcp__context7__get-library-docs
+Input: { "context7CompatibleLibraryID": "...", "topic": "[error message keyword]" }
+```
+
+Use the documentation to understand the error and include the fix in your QA report.
+
+### Step 4: Document results
+
+```
+BUILD VERIFICATION:
+- [service-name]: PASS/FAIL
+- Build errors: [list or "None"]
+- Build time: [seconds]
+```
+
+**If ANY build fails → REJECT immediately. Build errors are always CRITICAL.**
+
+---
+
 ## PHASE 3: RUN AUTOMATED TESTS
 
 ### 3.1: Unit Tests
@@ -167,9 +215,14 @@ BROWSER VERIFICATION:
 <!-- PROJECT-SPECIFIC VALIDATION TOOLS WILL BE INJECTED HERE -->
 <!-- The following sections are dynamically added based on project type: -->
 <!-- - Electron validation (for Electron apps) -->
-<!-- - Puppeteer browser automation (for web frontends) -->
+<!-- - Tauri validation (for Tauri apps) -->
+<!-- - Flutter validation (for Flutter projects) -->
+<!-- - Unity validation (for Unity projects) -->
+<!-- - React Native/Expo validation (for mobile projects) -->
+<!-- - Puppeteer browser automation (for web frontends, Flutter web, Expo web) -->
 <!-- - Database validation (for projects with databases) -->
 <!-- - API validation (for projects with API endpoints) -->
+<!-- END PROJECT-SPECIFIC VALIDATION -->
 
 ## PHASE 5: DATABASE VERIFICATION (If Applicable)
 
@@ -351,6 +404,7 @@ Create a comprehensive QA report:
 | Category | Status | Details |
 |----------|--------|---------|
 | Subtasks Complete | ✓/✗ | X/Y completed |
+| Build Verification | ✓/✗ | [build results] |
 | Unit Tests | ✓/✗ | X/Y passing |
 | Integration Tests | ✓/✗ | X/Y passing |
 | E2E Tests | ✓/✗ | X/Y passing |
@@ -502,6 +556,7 @@ Update `implementation_plan.json`:
 Status: APPROVED ✓
 
 All acceptance criteria verified:
+- Build verification: PASS
 - Unit tests: PASS
 - Integration tests: PASS
 - E2E tests: PASS

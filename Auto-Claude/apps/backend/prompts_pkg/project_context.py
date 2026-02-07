@@ -158,6 +158,11 @@ def detect_project_capabilities(project_index: dict) -> dict:
         if isinstance(api_info, dict) and api_info.get("routes"):
             capabilities["has_api"] = True
 
+        # Backend services almost always have APIs even if routes aren't detected
+        svc_type = str(service.get("type", "")).lower()
+        if svc_type == "backend":
+            capabilities["has_api"] = True
+
         # Database detection
         if service.get("database"):
             capabilities["has_database"] = True
@@ -211,6 +216,8 @@ def should_refresh_project_index(project_dir: Path) -> bool:
         project_dir / "go.mod",
         project_dir / "Cargo.toml",
         project_dir / "composer.json",
+        project_dir / "pubspec.yaml",
+        project_dir / "ProjectSettings" / "ProjectVersion.txt",
     ]
 
     for dep_file in dep_files:
@@ -275,8 +282,25 @@ def get_mcp_tools_for_project(capabilities: dict) -> list[str]:
     if capabilities.get("is_tauri"):
         tools.append("mcp_tools/tauri_validation.md")
 
-    # Web browser automation (for non-Electron web apps)
-    if capabilities.get("is_web_frontend") and not capabilities.get("is_electron"):
+    # Flutter validation
+    if capabilities.get("is_flutter"):
+        tools.append("mcp_tools/flutter_validation.md")
+
+    # Unity validation
+    if capabilities.get("is_unity"):
+        tools.append("mcp_tools/unity_validation.md")
+
+    # React Native / Expo validation
+    if capabilities.get("is_react_native") or capabilities.get("is_expo"):
+        tools.append("mcp_tools/react_native_validation.md")
+
+    # Puppeteer browser automation (web frontends + Flutter web + Expo web)
+    needs_puppeteer = (
+        capabilities.get("is_web_frontend")
+        or capabilities.get("is_flutter")
+        or capabilities.get("is_expo")
+    )
+    if needs_puppeteer and not capabilities.get("is_electron"):
         tools.append("mcp_tools/puppeteer_browser.md")
 
     # Database validation

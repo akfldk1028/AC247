@@ -574,7 +574,7 @@ This shows only changes made in the spec branch since it diverged from `{base_br
         mcp_content += "\n\n---\n"
 
         # Replace the multi-line marker comment block
-        marker_pattern = r"<!-- PROJECT-SPECIFIC VALIDATION TOOLS WILL BE INJECTED HERE -->.*?<!-- - API validation \(for projects with API endpoints\) -->"
+        marker_pattern = r"<!-- PROJECT-SPECIFIC VALIDATION TOOLS WILL BE INJECTED HERE -->.*?<!-- END PROJECT-SPECIFIC VALIDATION -->"
         base_prompt = re.sub(marker_pattern, mcp_content, base_prompt, flags=re.DOTALL)
     elif mcp_sections:
         # Fallback: append at the end if marker not found

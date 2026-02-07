@@ -82,6 +82,14 @@ class FrameworkAnalyzer(BaseAnalyzer):
             content = self._read_file("pubspec.yaml")
             self._detect_dart_framework(content)
 
+        # Unity detection (check BEFORE Swift/C# — Unity has ProjectSettings/)
+        elif self._exists("ProjectSettings/ProjectVersion.txt") or (
+            self._exists("Assets") and any(self.path.glob("*.sln"))
+        ):
+            self.analysis["language"] = "C#"
+            self.analysis["package_manager"] = "Unity Package Manager"
+            self._detect_unity_project()
+
         # Swift/iOS detection (check BEFORE Ruby - iOS projects often have Gemfile for CocoaPods/Fastlane)
         elif self._exists("Package.swift") or any(self.path.glob("*.xcodeproj")):
             self.analysis["language"] = "Swift"
@@ -140,6 +148,12 @@ class FrameworkAnalyzer(BaseAnalyzer):
             self.analysis["orm"] = "Tortoise ORM"
         elif "prisma" in content_lower:
             self.analysis["orm"] = "Prisma"
+
+        # Build command (Python with pyproject.toml build-system)
+        if self._exists("pyproject.toml"):
+            pyproject = self._read_file("pyproject.toml")
+            if "[build-system]" in pyproject:
+                self.analysis["build_command"] = "python -m build"
 
     def _detect_node_framework(self, pkg: dict) -> None:
         """Detect Node.js/TypeScript framework."""
@@ -247,6 +261,11 @@ class FrameworkAnalyzer(BaseAnalyzer):
         elif "start" in scripts:
             self.analysis["dev_command"] = "npm run start"
 
+        # Build command
+        pm = self.analysis.get("package_manager", "npm")
+        if "build" in scripts:
+            self.analysis["build_command"] = f"{pm} run build"
+
     def _detect_go_framework(self, content: str) -> None:
         """Detect Go framework."""
         from .port_detector import PortDetector
@@ -267,6 +286,9 @@ class FrameworkAnalyzer(BaseAnalyzer):
                 self.analysis["default_port"] = detected_port
                 break
 
+        # Build command (Go always supports build)
+        self.analysis["build_command"] = "go build ./..."
+
     def _detect_rust_framework(self, content: str) -> None:
         """Detect Rust framework."""
         from .port_detector import PortDetector
@@ -286,6 +308,9 @@ class FrameworkAnalyzer(BaseAnalyzer):
                 self.analysis["default_port"] = detected_port
                 break
 
+        # Build command (Rust always supports build)
+        self.analysis["build_command"] = "cargo build"
+
     def _detect_dart_framework(self, content: str) -> None:
         """Detect Dart/Flutter framework from pubspec.yaml content."""
         content_lower = content.lower()
@@ -293,14 +318,23 @@ class FrameworkAnalyzer(BaseAnalyzer):
         # Flutter detection
         if "flutter:" in content_lower and "sdk: flutter" in content_lower:
             self.analysis["framework"] = "Flutter"
-            # Determine type based on platform targets
+            # Determine type and build command based on platform targets
             if self._exists("web") or self._exists("lib/web"):
                 self.analysis["type"] = "frontend"
-            elif self._exists("android") or self._exists("ios"):
+                self.analysis["build_command"] = "flutter build web"
+                self.analysis["dev_command"] = "flutter run -d chrome --web-port=8080"
+            elif self._exists("android"):
                 self.analysis["type"] = "mobile"
+                self.analysis["build_command"] = "flutter build apk"
+                self.analysis["dev_command"] = "flutter run"
+            elif self._exists("ios"):
+                self.analysis["type"] = "mobile"
+                self.analysis["build_command"] = "flutter build ios --no-codesign"
+                self.analysis["dev_command"] = "flutter run"
             else:
                 self.analysis["type"] = "mobile"  # Default for Flutter
-            self.analysis["dev_command"] = "flutter run"
+                self.analysis["build_command"] = "flutter build apk"
+                self.analysis["dev_command"] = "flutter run"
         else:
             # Pure Dart (backend/CLI)
             dart_backend_frameworks = {
@@ -424,9 +458,73 @@ class FrameworkAnalyzer(BaseAnalyzer):
             dependencies = self._detect_spm_dependencies()
             if dependencies:
                 self.analysis["spm_dependencies"] = dependencies
+
+            # Build command
+            if self._exists("Package.swift"):
+                self.analysis["build_command"] = "swift build"
+            else:
+                # Xcode project — detect scheme from xcodeproj
+                for xcodeproj in self.path.glob("*.xcodeproj"):
+                    scheme = xcodeproj.stem
+                    self.analysis["build_command"] = (
+                        f"xcodebuild -scheme {scheme} build"
+                    )
+                    break
         except Exception:
             # Silently fail if Swift detection has issues
             pass
+
+    def _detect_unity_project(self) -> None:
+        """Detect Unity project details and build commands."""
+        self.analysis["framework"] = "Unity"
+
+        # Type detection based on project contents
+        if self._exists("Assets/Plugins/Android") or self._exists("Assets/Plugins/iOS"):
+            self.analysis["type"] = "mobile"
+        elif self._exists("Assets/WebGLTemplates") or self._exists("WebGLTemplates"):
+            self.analysis["type"] = "frontend"
+        else:
+            self.analysis["type"] = "desktop"  # Default for Unity
+
+        # Build command: batch mode
+        self.analysis["build_command"] = (
+            "Unity -batchmode -nographics -projectPath . "
+            "-executeMethod BuildScript.Build -quit -logFile build.log"
+        )
+
+        # Test command (official: -runTests -testPlatform -testResults)
+        self.analysis["test_command"] = (
+            "Unity -batchmode -nographics -projectPath . "
+            "-runTests -testPlatform EditMode "
+            "-testResults test-results.xml -logFile test.log"
+        )
+
+        # Unity version detection
+        version_file = self.path / "ProjectSettings" / "ProjectVersion.txt"
+        if version_file.exists():
+            try:
+                content = version_file.read_text(encoding="utf-8", errors="ignore")
+                # Format: "m_EditorVersion: 2022.3.10f1"
+                for line in content.split("\n"):
+                    if "m_EditorVersion" in line:
+                        self.analysis["unity_version"] = line.split(":")[-1].strip()
+                        break
+            except OSError:
+                pass
+
+        # Render pipeline detection via Packages/manifest.json
+        # UPM registry packages are NOT physical directories — they're listed
+        # in manifest.json and cached globally by Unity Package Manager
+        manifest_file = self.path / "Packages" / "manifest.json"
+        if manifest_file.exists():
+            try:
+                manifest = manifest_file.read_text(encoding="utf-8", errors="ignore")
+                if "com.unity.render-pipelines.universal" in manifest:
+                    self.analysis["render_pipeline"] = "URP"
+                elif "com.unity.render-pipelines.high-definition" in manifest:
+                    self.analysis["render_pipeline"] = "HDRP"
+            except OSError:
+                pass
 
     def _detect_spm_dependencies(self) -> list[str]:
         """Detect Swift Package Manager dependencies."""
