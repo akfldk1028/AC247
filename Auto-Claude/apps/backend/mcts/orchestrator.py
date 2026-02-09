@@ -364,6 +364,19 @@ async def _create_child_specs(
     budget: BudgetTracker,
 ) -> None:
     """Create child specs for new MCTS nodes via SpecFactory."""
+    from agents.tools_pkg.tools.subtask import _calculate_task_depth, MAX_CHILD_DEPTH
+
+    # Depth guard: prevent creating child specs beyond MAX_CHILD_DEPTH
+    current_depth = _calculate_task_depth(spec_dir)
+    child_depth = current_depth + 1
+    if child_depth > MAX_CHILD_DEPTH:
+        print(f"[MCTS] Depth limit reached ({child_depth} > {MAX_CHILD_DEPTH}), cannot create child specs")
+        for node in nodes:
+            node.status = "failed"
+            node.metadata["error"] = f"Depth limit exceeded (depth={child_depth}, max={MAX_CHILD_DEPTH})"
+        tree.save(spec_dir)
+        return
+
     from services.spec_factory import SpecFactory
 
     factory = SpecFactory(project_dir)

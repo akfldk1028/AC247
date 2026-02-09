@@ -184,6 +184,37 @@ create_batch_child_specs({
 })
 ```
 
+## TASK TYPE REFERENCE
+
+| task_type | When to Use |
+|-----------|-------------|
+| `impl` | Clear requirements, single correct approach |
+| `architecture` | Foundation/schema that other tasks depend on |
+| `mcts` | Multiple viable approaches, uncertainty about best solution |
+| `test` | Test suites, integration testing |
+| `frontend` / `backend` | Domain-specific implementation |
+
+### When to use `mcts` task_type
+
+Use `task_type: "mcts"` when:
+- There are **multiple valid implementation approaches** and it's unclear which is best
+- The sub-problem involves **significant uncertainty** (e.g., performance optimization, algorithm choice)
+- You want the system to **explore and compare** different solutions automatically
+
+Example:
+```
+{
+    "task": "Implement efficient search with auto-complete",
+    "priority": 1,
+    "task_type": "mcts",
+    "depends_on": ["1"]
+}
+```
+
+Do NOT use `mcts` when:
+- Requirements are clear and there's an obvious implementation path → use `impl`
+- The task is simple or small → use `impl`
+
 ## WHEN TO USE THIS AGENT
 
 Use the Design Architect Agent when:

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 MAX_CHILD_DEPTH = int(os.environ.get("AUTO_CLAUDE_MAX_CHILD_DEPTH", "2"))
 
 # Task types that are NOT allowed beyond depth 1 (prevent recursive design explosion)
-DESIGN_ONLY_TYPES = {"design", "architecture"}
+DESIGN_ONLY_TYPES = {"design", "architecture", "mcts"}
 
 
 def _calculate_task_depth(spec_dir: Path) -> int:
@@ -351,7 +351,7 @@ Example:
                         "type": "text",
                         "text": (
                             f"Error: Cannot create '{task_type}' child spec at depth {child_depth}. "
-                            "Design/architecture tasks can only be created at depth 0-1. "
+                            "Design/architecture/mcts tasks can only be created at depth 0-1. "
                             "Use 'impl', 'frontend', 'backend', etc. for deeper nesting."
                         ),
                     }
@@ -520,8 +520,8 @@ Example:
                     {
                         "type": "text",
                         "text": (
-                            f"Error: Cannot create 'design'/'architecture' child specs at depth {child_depth}. "
-                            "Design tasks can only be created at depth 0-1. "
+                            f"Error: Cannot create 'design'/'architecture'/'mcts' child specs at depth {child_depth}. "
+                            "Design/architecture/mcts tasks can only be created at depth 0-1. "
                             "Use 'impl', 'frontend', 'backend', etc. for deeper nesting."
                         ),
                     }
