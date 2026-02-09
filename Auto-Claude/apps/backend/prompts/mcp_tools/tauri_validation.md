@@ -2,58 +2,119 @@
 
 For Tauri desktop applications, validate both the web frontend and the Rust backend independently.
 
-### Frontend Validation (Puppeteer)
+**CRITICAL**: You MUST use Playwright MCP tools for frontend validation. `curl` or code review alone is NOT sufficient.
 
-Tauri apps use a web frontend. Start the dev server and validate with Puppeteer.
+### Frontend Validation (Playwright — MANDATORY)
 
-#### Step 1: Start Frontend Dev Server
+Tauri apps use a web frontend. You MUST start the dev server and validate with Playwright.
 
+#### Step 1: Start Frontend Dev Server (MANDATORY)
+
+Use the `dev_command` from **DEV SERVER CONFIGURATION** (injected above in the prompt).
+If not available, check `project_index.json` or use the project's dev script (typically `npm run dev`).
+
+**Windows (PowerShell):**
+```powershell
+Start-Process -NoNewWindow -FilePath "npm" -ArgumentList "run", "dev"
+```
+
+**Linux/macOS (Bash):**
 ```bash
-# Start the frontend dev server (typically Vite on port 1420)
 npm run dev &
-
-# Wait for server to be ready
-sleep 10
 ```
 
-#### Step 2: Navigate and Screenshot
+#### Step 2: Wait for Server Ready — Cross-Platform Port Polling (MANDATORY)
 
-```
-Tool: mcp__puppeteer__puppeteer_navigate
-Args: {"url": "http://localhost:1420"}
-```
+**Do NOT use `sleep 10` or any fixed sleep.** Poll the port until the server is listening.
 
-```
-Tool: mcp__puppeteer__puppeteer_screenshot
-Args: {"name": "tauri-frontend-initial"}
-```
+Use the health check commands from DEV SERVER CONFIGURATION, or:
 
-#### Step 3: Verify UI Elements
-
-```
-Tool: mcp__puppeteer__puppeteer_evaluate
-Args: {"script": "document.getElementById('root') !== null || document.getElementById('app') !== null"}
+**Windows (PowerShell):**
+```powershell
+$port = 1420; $timeout = 60; $elapsed = 0
+while ($elapsed -lt $timeout) {
+  try { $tcp = New-Object System.Net.Sockets.TcpClient('localhost', $port); $tcp.Close(); break }
+  catch { Start-Sleep -Seconds 2; $elapsed += 2 }
+}
 ```
 
-#### Step 4: Test Interactions
-
-```
-Tool: mcp__puppeteer__puppeteer_click
-Args: {"selector": "[data-testid=\"submit-button\"]"}
-```
-
-#### Step 5: Check Console Errors
-
-```
-Tool: mcp__puppeteer__puppeteer_evaluate
-Args: {"script": "window.__consoleErrors || []"}
+**Linux/macOS (Bash):**
+```bash
+port=1420; timeout=60; elapsed=0
+while [ $elapsed -lt $timeout ]; do
+  curl -s http://localhost:$port > /dev/null 2>&1 && break
+  sleep 2; elapsed=$((elapsed + 2))
+done
 ```
 
-#### Step 6: Cleanup
+Replace port with the actual port from DEV SERVER CONFIGURATION.
+
+#### Step 3: Navigate and Take Snapshot (MANDATORY — MUST CALL THESE TOOLS)
+
+You MUST call these Playwright tools. Do NOT substitute with curl or wget.
+
+```
+Tool: mcp__playwright__browser_navigate
+Args: {"url": "http://localhost:PORT"}
+```
+
+```
+Tool: mcp__playwright__browser_snapshot
+```
+
+Get the accessibility tree to discover interactive elements.
+
+#### Step 4: Take Screenshot and SAVE (MANDATORY — MUST CALL THIS TOOL)
 
 ```bash
-kill $(lsof -ti:1420) 2>/dev/null || true
+mkdir -p screenshots
 ```
+
+```
+Tool: mcp__playwright__browser_take_screenshot
+Args: {"fileName": "screenshots/01-initial-load"}
+```
+
+Capture the page for visual verification. Compare against spec requirements.
+Save additional screenshots after interactions: `screenshots/02-after-{action}`
+
+#### Step 5: Test Interactions (MANDATORY for interactive apps)
+
+Use `ref` values from the accessibility snapshot:
+
+```
+Tool: mcp__playwright__browser_click
+Args: {"element": "Submit button", "ref": "e1"}
+```
+
+```
+Tool: mcp__playwright__browser_type
+Args: {"element": "Text input", "ref": "e2", "text": "test value"}
+```
+
+After each interaction, take a new snapshot or screenshot to verify the result.
+
+#### Step 6: Check Console Errors (MANDATORY — MUST CALL THIS TOOL)
+
+```
+Tool: mcp__playwright__browser_console_messages
+```
+
+Check for JavaScript errors, framework warnings, or Tauri API call failures.
+
+#### Step 7: Cleanup (MANDATORY)
+
+**Windows (PowerShell):**
+```powershell
+Get-NetTCPConnection -LocalPort PORT -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+```
+
+**Linux/macOS (Bash):**
+```bash
+kill $(lsof -ti:PORT) 2>/dev/null || true
+```
+
+Replace `PORT` with the actual port.
 
 ### Rust Backend Validation
 
@@ -81,15 +142,19 @@ npm run lint 2>/dev/null || true
 npm test 2>/dev/null || true
 ```
 
-### Document Findings
+### Document Findings (MANDATORY)
 
 ```
 TAURI VALIDATION:
 - Frontend (Web):
   - Dev server started: YES/NO
-  - Screenshots captured: [list]
+  - Playwright navigate called: YES/NO
+  - Playwright snapshot called: YES/NO
+  - Playwright screenshot called: YES/NO
+  - Screenshots captured: [count]
   - UI rendered correctly: PASS/FAIL
   - Console errors: [list or "None"]
+  - Interactions tested: [list]
   - Interactions working: PASS/FAIL
 - Rust Backend:
   - cargo check: PASS/FAIL
@@ -100,6 +165,8 @@ TAURI VALIDATION:
   - Build errors: [list or "None"]
 - Issues: [list or "None"]
 ```
+
+**IMPORTANT**: If Playwright tools were not called, Frontend validation MUST be INCOMPLETE, not PASS.
 
 ### Handling Common Issues
 
@@ -117,5 +184,5 @@ Tauri requires system libraries (GTK, WebKitGTK on Linux). If build fails due to
 **Rust Toolchain Not Installed:**
 If `cargo` is not available:
 1. Document: "Rust validation skipped - cargo not in PATH"
-2. Validate frontend only via Puppeteer
+2. Validate frontend only via Playwright (STILL MANDATORY)
 3. Recommend Rust toolchain installation

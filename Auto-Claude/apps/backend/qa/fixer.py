@@ -73,6 +73,20 @@ async def run_qa_fixer_session(
     if project_dir is None:
         # Walk up from spec_dir to find project root
         project_dir = spec_dir.parent.parent.parent
+    import time as _time
+    from core.task_event import append_event_log
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    _session_id = str(uuid4())
+    _session_start = _time.monotonic()
+    append_event_log(spec_dir, {
+        "type": "AGENT_SESSION_START", "sessionId": _session_id,
+        "agentType": "qa_fixer", "phase": "qa_fixing",
+        "sessionNum": fix_session,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
     debug_section("qa_fixer", f"QA Fixer Session {fix_session}")
     debug(
         "qa_fixer",
@@ -96,6 +110,14 @@ async def run_qa_fixer_session(
     fix_request_file = spec_dir / "QA_FIX_REQUEST.md"
     if not fix_request_file.exists():
         debug_error("qa_fixer", "QA_FIX_REQUEST.md not found")
+        append_event_log(spec_dir, {
+            "type": "AGENT_SESSION_END", "sessionId": _session_id,
+            "agentType": "qa_fixer", "phase": "qa_fixing",
+            "sessionNum": fix_session, "status": "error",
+            "durationSeconds": round(_time.monotonic() - _session_start, 2),
+            "errorMessage": "QA_FIX_REQUEST.md not found",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
         return "error", "QA_FIX_REQUEST.md not found"
 
     # Load fixer prompt
@@ -293,6 +315,13 @@ async def run_qa_fixer_session(
                 subtasks_completed=[f"qa_fixer_{fix_session}"],
                 discoveries=fixer_discoveries,
             )
+            append_event_log(spec_dir, {
+                "type": "AGENT_SESSION_END", "sessionId": _session_id,
+                "agentType": "qa_fixer", "phase": "qa_fixing",
+                "sessionNum": fix_session, "status": "fixed",
+                "durationSeconds": round(_time.monotonic() - _session_start, 2),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
             return "fixed", response_text
         else:
             # Fixer didn't update the status properly, but we'll trust it worked
@@ -307,6 +336,13 @@ async def run_qa_fixer_session(
                 subtasks_completed=[f"qa_fixer_{fix_session}"],
                 discoveries=fixer_discoveries,
             )
+            append_event_log(spec_dir, {
+                "type": "AGENT_SESSION_END", "sessionId": _session_id,
+                "agentType": "qa_fixer", "phase": "qa_fixing",
+                "sessionNum": fix_session, "status": "fixed",
+                "durationSeconds": round(_time.monotonic() - _session_start, 2),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
             return "fixed", response_text
 
     except Exception as e:
@@ -318,4 +354,12 @@ async def run_qa_fixer_session(
         print(f"Error during fixer session: {e}")
         if task_logger:
             task_logger.log_error(f"QA fixer error: {e}", LogPhase.VALIDATION)
+        append_event_log(spec_dir, {
+            "type": "AGENT_SESSION_END", "sessionId": _session_id,
+            "agentType": "qa_fixer", "phase": "qa_fixing",
+            "sessionNum": fix_session, "status": "error",
+            "durationSeconds": round(_time.monotonic() - _session_start, 2),
+            "errorType": type(e).__name__, "errorMessage": str(e)[:500],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
         return "error", str(e)

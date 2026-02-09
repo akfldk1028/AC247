@@ -294,28 +294,56 @@ Claude CLI Features:
     if hasattr(signal, "SIGHUP"):
         signal.signal(signal.SIGHUP, signal_handler)
 
+    # WebSocket server for real-time UI communication (optional, graceful fallback)
+    # MUST be initialized BEFORE status_thread starts (it references ws_server)
+    ws_server = None
+    try:
+        from services.task_daemon.ws_server import DaemonWSServer
+
+        ws_server = DaemonWSServer(port=18800)
+        if ws_server.start():
+            log("info", f"WebSocket server started on ws://127.0.0.1:{ws_server.actual_port}")
+        else:
+            log("warning", "WebSocket server failed to start (file polling will be used)")
+            ws_server = None
+    except ImportError:
+        log("info", "websockets not installed, using file polling only")
+    except Exception as e:
+        log("warning", f"WebSocket server init failed: {e}")
+
     # Status file writer (if requested)
+    # Uses event-driven writes: wakes immediately on state change, or every 30s as heartbeat.
+    # Previous design wrote every 10s regardless; this reduces latency from ~10s to sub-second.
     if args.status_file:
         import threading
 
-        def write_status_periodically():
+        def write_status_loop():
             while not daemon._stop_event.is_set():
                 temp_path = args.status_file.with_suffix(".tmp")
                 try:
                     status = daemon.get_status()
                     status["timestamp"] = datetime.now().isoformat()
 
+                    # Include WS port in status file for UI auto-discovery
+                    if ws_server and ws_server.is_running:
+                        status["ws_port"] = ws_server.actual_port
+
                     with open(temp_path, "w", encoding="utf-8") as f:
-                        json.dump(status, f, indent=2)
-                    # Retry replace on Windows file lock
+                        json.dump(status, f, indent=2, ensure_ascii=False)
+                    # Retry replace on Windows file lock or transient errors
                     for attempt in range(3):
                         try:
                             temp_path.replace(args.status_file)
                             break
-                        except PermissionError:
+                        except (PermissionError, OSError):
                             if attempt < 2:
                                 import time
                                 time.sleep(0.1)
+
+                    # Also broadcast via WebSocket if available
+                    if ws_server and ws_server.is_running:
+                        ws_server.broadcast_status(status)
+
                 except Exception as e:
                     log("warning", f"Failed to write status file: {e}")
                     try:
@@ -324,15 +352,17 @@ Claude CLI Features:
                     except Exception:
                         pass
 
-                daemon._stop_event.wait(timeout=10)
+                # Wait for either: status change (immediate) or heartbeat timeout (30s)
+                daemon._status_dirty.wait(timeout=30)
+                daemon._status_dirty.clear()
 
         status_thread = threading.Thread(
-            target=write_status_periodically,
+            target=write_status_loop,
             name="StatusWriter",
             daemon=True,
         )
         status_thread.start()
-        log("info", f"Status file writer started: {args.status_file}")
+        log("info", f"Status file writer started (event-driven): {args.status_file}")
 
     # Print startup banner
     print("=" * 70)
@@ -356,6 +386,8 @@ Claude CLI Features:
         print(f"    Log File:        {args.log_file}")
     if args.status_file:
         print(f"    Status File:     {args.status_file}")
+    if ws_server and ws_server.is_running:
+        print(f"    WebSocket:       ws://127.0.0.1:{ws_server.actual_port}")
     print("=" * 70)
     print()
     print("Features:")
@@ -383,6 +415,13 @@ Claude CLI Features:
     finally:
         # Ensure clean shutdown (signal handler only sets _stop_event)
         daemon.stop()
+
+        # Stop WebSocket server
+        if ws_server:
+            try:
+                ws_server.stop()
+            except Exception:
+                pass
 
         # Cleanup PID file
         if args.pid_file and args.pid_file.exists():

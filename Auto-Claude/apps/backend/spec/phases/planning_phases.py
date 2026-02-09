@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from task_logger import LogEntryType, LogPhase
 
 from .. import writer
-from .models import MAX_RETRIES, PhaseResult
+from .models import MAX_RETRIES, PhaseResult, retry_backoff
 
 if TYPE_CHECKING:
     pass
@@ -109,6 +109,7 @@ class PlanningPhaseMixin:
                 errors.append(
                     f"Agent attempt {attempt + 1}: Did not create plan file ({error_detail})"
                 )
+            await retry_backoff(attempt, output, self.ui)
 
         return PhaseResult("planning", False, [], errors, MAX_RETRIES)
 
@@ -179,6 +180,7 @@ Read the failed files, understand the errors, and fix them.
 
                 if not success:
                     self.ui.print_status("Auto-fix agent failed", "warning")
+                    await retry_backoff(attempt, output, self.ui)
 
         # All retries exhausted
         errors = [f"{r.checkpoint}: {err}" for r in results for err in r.errors]

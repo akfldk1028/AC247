@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .project_context import (
     detect_project_capabilities,
+    extract_dev_server_info,
     get_mcp_tools_for_project,
     load_project_index,
 )
@@ -561,6 +562,11 @@ This shows only changes made in the spec branch since it diverged from `{base_br
 
     spec_context += "---\n\n"
 
+    # Inject dev server configuration from project_index.json
+    dev_server_info = extract_dev_server_info(project_index)
+    if dev_server_info:
+        spec_context += dev_server_info
+
     # Find injection point in base prompt (after PHASE 4, before PHASE 5)
     injection_marker = (
         "<!-- PROJECT-SPECIFIC VALIDATION TOOLS WILL BE INJECTED HERE -->"
@@ -597,6 +603,10 @@ def get_qa_fixer_prompt(spec_dir: Path, project_dir: Path) -> str:
     """
     base_prompt = _load_prompt_file("qa_fixer.md")
 
+    # Load project index for dev server info
+    project_index = load_project_index(project_dir)
+    dev_server_info = extract_dev_server_info(project_index)
+
     spec_context = f"""## SPEC LOCATION
 
 Your spec and progress files are located at:
@@ -610,6 +620,9 @@ The project root is: `{project_dir}`
 ---
 
 """
+    if dev_server_info:
+        spec_context += dev_server_info
+
     return spec_context + base_prompt
 
 
@@ -702,6 +715,9 @@ def get_verify_prompt(spec_dir: Path, project_dir: Path) -> str:
         mcp_content += "\n\n---\n\n".join(mcp_sections)
         mcp_content += "\n"
 
+    # Dev server info for runtime validation
+    dev_server_info = extract_dev_server_info(project_index)
+
     spec_context = f"""## SPEC LOCATION
 
 Your spec and progress files are located at:
@@ -718,6 +734,9 @@ The project root is: `{project_dir}`
 ---
 
 """
+    if dev_server_info:
+        spec_context += dev_server_info
+
     return spec_context + base_prompt + mcp_content
 
 

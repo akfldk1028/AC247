@@ -31,23 +31,24 @@ That's it. No deep analysis needed.
 
 ## PHASE 2: CREATE MINIMAL SPEC
 
-Create a concise `spec.md`:
+Create a concise `spec.md`. **IMPORTANT: You MUST include these exact section headers or validation will fail.**
 
 ```bash
 cat > spec.md << 'EOF'
-# Quick Spec: [Task Name]
+# [Task Name]
 
-## Task
-[One sentence description]
+## Overview
+[One sentence description of what this task accomplishes]
 
-## Files to Modify
-- `[path/to/file]` - [what to change]
+## Workflow Type
+[simple | feature | bugfix | refactor]
 
-## Change Details
-[Brief description of the change - a few sentences max]
+## Task Scope
+- `[path/to/file]` - [what to change or create]
 
-## Verification
+## Success Criteria
 - [ ] [How to verify the change works]
+- [ ] [Additional verification if needed]
 
 ## Notes
 [Any gotchas or considerations - optional]
@@ -146,18 +147,18 @@ Ready for implementation.
 
 **spec.md**:
 ```markdown
-# Quick Spec: Button Color Change
+# Button Color Change
 
-## Task
+## Overview
 Update primary button color from blue (#3B82F6) to green (#22C55E).
 
-## Files to Modify
-- `src/components/Button.tsx` - Update color constant
+## Workflow Type
+simple
 
-## Change Details
-Change the `primaryColor` variable from `#3B82F6` to `#22C55E`.
+## Task Scope
+- `src/components/Button.tsx` - Update color constant from blue to green
 
-## Verification
+## Success Criteria
 - [ ] Buttons appear green in the UI
 - [ ] No console errors
 ```
@@ -168,18 +169,18 @@ Change the `primaryColor` variable from `#3B82F6` to `#22C55E`.
 
 **spec.md**:
 ```markdown
-# Quick Spec: Fix Welcome Typo
+# Fix Welcome Typo
 
-## Task
+## Overview
 Correct spelling of "recieve" to "receive" in welcome message.
 
-## Files to Modify
+## Workflow Type
+bugfix
+
+## Task Scope
 - `src/pages/Home.tsx` - Fix typo on line 42
 
-## Change Details
-Find "You will recieve" and change to "You will receive".
-
-## Verification
+## Success Criteria
 - [ ] Welcome message displays correctly
 ```
 

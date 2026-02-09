@@ -233,13 +233,29 @@ class AgentRunner:
                 return True, response_text
 
         except Exception as e:
+            error_type = type(e).__name__
             debug_error(
                 "agent_runner",
                 f"Agent session error: {e}",
-                exception_type=type(e).__name__,
+                exception_type=error_type,
             )
             if self.task_logger:
                 self.task_logger.log_error(f"Agent error: {e}", LogPhase.PLANNING)
+
+            # Classify error for caller (OpenClaw pattern: graceful degradation)
+            # Rate limits and overload errors are retryable with backoff
+            from spec.phases.models import is_retryable_error
+
+            if is_retryable_error(str(e)):
+                debug(
+                    "agent_runner",
+                    f"Error classified as RETRYABLE: {error_type}",
+                )
+                # Log retry event for diagnostics (OpenClaw P3)
+                from core.retry import log_retry_event
+
+                log_retry_event(self.spec_dir, 0, 0.0, str(e))
+
             return False, str(e)
 
     @staticmethod

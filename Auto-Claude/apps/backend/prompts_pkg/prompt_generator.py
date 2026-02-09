@@ -85,10 +85,13 @@ You are in an **ISOLATED GIT WORKTREE** - a complete copy of the project for saf
 1. **NEVER** use `cd {parent_project_path}` or any path starting with `{parent_project_path}`
 2. **NEVER** use absolute paths that reference the parent project
 3. **ALL** project files exist HERE via relative paths
+4. **NEVER** run `git merge`, `git rebase`, or `git checkout` to other branches — merging is handled automatically after QA passes
+5. **NEVER** run `git push` — code is merged locally by the orchestrator
 
 ### Why This Matters:
 - Git commits made in the parent project go to the WRONG branch
 - File changes in the parent project escape isolation
+- Running `git merge` from the worktree bypasses the orchestrator's merge flow and can cause code loss
 - This defeats the entire purpose of safe, isolated development
 
 ### Correct Usage:
@@ -96,10 +99,13 @@ You are in an **ISOLATED GIT WORKTREE** - a complete copy of the project for saf
 # ✅ CORRECT - Use relative paths from your worktree
 ./prod/src/file.ts
 ./apps/frontend/src/component.tsx
+git add . && git commit -m "your commit message"
 
 # ❌ WRONG - These escape isolation!
 cd {parent_project_path}
 {parent_project_path}/prod/src/file.ts
+git merge main
+git checkout main
 ```
 
 If you see absolute paths in spec.md or context.json that reference `{parent_project_path}`,
@@ -382,7 +388,26 @@ def generate_planner_prompt(spec_dir: Path, project_dir: Path | None = None) -> 
 
     # For "design" or "architecture" taskType, use design_architect.md
     # This prompt instructs the agent to use create_batch_child_specs tool
-    if task_type in ("design", "architecture"):
+    # BUT: architecture tasks at depth >= 1 are children of a design task
+    # and should NOT decompose further — use planner.md instead
+    use_design_prompt = False
+    if task_type == "design":
+        use_design_prompt = True
+    elif task_type == "architecture":
+        # Only root-level architecture tasks decompose.
+        # Children (depth >= 1) are concrete implementation tasks.
+        depth = 0
+        if plan_file.exists():
+            try:
+                _plan = json.loads(plan_file.read_text(encoding="utf-8"))
+                parent_id = _plan.get("parentTask") or _plan.get("parent_task")
+                if parent_id:
+                    depth = 1  # has a parent → at least depth 1
+            except (json.JSONDecodeError, OSError):
+                pass
+        use_design_prompt = depth == 0
+
+    if use_design_prompt:
         prompt_filename = "design_architect.md"
     else:
         prompt_filename = "planner.md"
@@ -399,7 +424,7 @@ def generate_planner_prompt(spec_dir: Path, project_dir: Path | None = None) -> 
     if planner_file:
         prompt = planner_file.read_text(encoding="utf-8")
         # For design tasks, add explicit instruction to use create_batch_child_specs
-        if task_type in ("design", "architecture"):
+        if use_design_prompt:
             prompt += """
 
 ## CRITICAL REQUIREMENT

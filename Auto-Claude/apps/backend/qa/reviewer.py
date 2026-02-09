@@ -25,6 +25,7 @@ from task_logger import (
 )
 
 from .criteria import get_qa_signoff_status
+from .validators import ValidatorResult
 
 # =============================================================================
 # QA REVIEWER SESSION
@@ -39,6 +40,7 @@ async def run_qa_agent_session(
     max_iterations: int,
     verbose: bool = False,
     previous_error: dict | None = None,
+    extra_context: str | None = None,
 ) -> tuple[str, str]:
     """
     Run a QA reviewer agent session.
@@ -58,6 +60,20 @@ async def run_qa_agent_session(
         - "rejected" if QA finds issues
         - "error" if an error occurred
     """
+    import time as _time
+    from core.task_event import append_event_log
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    _session_id = str(uuid4())
+    _session_start = _time.monotonic()
+    append_event_log(spec_dir, {
+        "type": "AGENT_SESSION_START", "sessionId": _session_id,
+        "agentType": "qa_reviewer", "phase": "qa_review",
+        "sessionNum": qa_session,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
     debug_section("qa_reviewer", f"QA Reviewer Session {qa_session}")
     debug(
         "qa_reviewer",
@@ -87,6 +103,10 @@ async def run_qa_agent_session(
         prompt_length=len(prompt),
         project_dir=str(project_dir),
     )
+
+    # Inject extra context (e.g., pre-computed validator results)
+    if extra_context:
+        prompt += "\n\n" + extra_context
 
     # Retrieve memory context for QA (past patterns, gotchas, validation insights)
     qa_memory_context = await get_graphiti_context(
@@ -350,6 +370,15 @@ This is attempt {previous_error.get("consecutive_errors", 1) + 1}. If you fail t
                 subtasks_completed=[f"qa_reviewer_{qa_session}"],
                 discoveries=qa_discoveries,
             )
+            _end_status = "approved"
+            append_event_log(spec_dir, {
+                "type": "AGENT_SESSION_END", "sessionId": _session_id,
+                "agentType": "qa_reviewer", "phase": "qa_review",
+                "sessionNum": qa_session, "status": _end_status,
+                "durationSeconds": round(_time.monotonic() - _session_start, 2),
+                "toolCount": tool_count, "messageCount": message_count,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
             return "approved", response_text
         elif status and status.get("status") == "rejected":
             debug_error("qa_reviewer", "QA REJECTED")
@@ -369,6 +398,14 @@ This is attempt {previous_error.get("consecutive_errors", 1) + 1}. If you fail t
                 subtasks_completed=[],
                 discoveries=qa_discoveries,
             )
+            append_event_log(spec_dir, {
+                "type": "AGENT_SESSION_END", "sessionId": _session_id,
+                "agentType": "qa_reviewer", "phase": "qa_review",
+                "sessionNum": qa_session, "status": "rejected",
+                "durationSeconds": round(_time.monotonic() - _session_start, 2),
+                "toolCount": tool_count, "messageCount": message_count,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
             return "rejected", response_text
         else:
             # Agent didn't update the status properly - provide detailed error
@@ -393,6 +430,14 @@ This is attempt {previous_error.get("consecutive_errors", 1) + 1}. If you fail t
             if error_details:
                 error_msg += f" ({'; '.join(error_details)})"
 
+            append_event_log(spec_dir, {
+                "type": "AGENT_SESSION_END", "sessionId": _session_id,
+                "agentType": "qa_reviewer", "phase": "qa_review",
+                "sessionNum": qa_session, "status": "error",
+                "durationSeconds": round(_time.monotonic() - _session_start, 2),
+                "errorMessage": error_msg[:500],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
             return "error", error_msg
 
     except Exception as e:
@@ -404,4 +449,88 @@ This is attempt {previous_error.get("consecutive_errors", 1) + 1}. If you fail t
         print(f"Error during QA session: {e}")
         if task_logger:
             task_logger.log_error(f"QA session error: {e}", LogPhase.VALIDATION)
+        append_event_log(spec_dir, {
+            "type": "AGENT_SESSION_END", "sessionId": _session_id,
+            "agentType": "qa_reviewer", "phase": "qa_review",
+            "sessionNum": qa_session, "status": "error",
+            "durationSeconds": round(_time.monotonic() - _session_start, 2),
+            "errorType": type(e).__name__, "errorMessage": str(e)[:500],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
         return "error", str(e)
+
+
+# =============================================================================
+# VALIDATOR-ENHANCED QA REVIEW
+# =============================================================================
+
+
+async def review_with_results(
+    client: "ClaudeSDKClient",
+    project_dir: Path,
+    spec_dir: Path,
+    validator_results: list[ValidatorResult],
+    qa_session: int,
+    max_iterations: int,
+    verbose: bool = False,
+) -> tuple[str, str]:
+    """Run QA reviewer with pre-computed validator results as context.
+
+    This is the n8n-pattern alternative to run_qa_agent_session().
+    Instead of the reviewer running all validations itself, it receives
+    structured ValidatorResult objects and focuses on spec compliance.
+
+    Args:
+        client: Claude SDK client
+        project_dir: Project root directory
+        spec_dir: Spec directory
+        validator_results: Pre-computed validator results
+        qa_session: QA iteration number
+        max_iterations: Maximum QA iterations
+        verbose: Verbose output
+
+    Returns:
+        (status, response_text) — same as run_qa_agent_session()
+    """
+    from .validator_orchestrator import format_validator_report
+
+    # Build validator context section
+    validator_section = format_validator_report(validator_results)
+
+    # Check if any validators failed
+    failed_validators = [r for r in validator_results if not r.passed]
+    all_passed = len(failed_validators) == 0
+
+    # Build additional prompt context
+    validator_context = f"""
+
+---
+
+## Pre-Validation Results
+
+The following automated validators have already been run:
+
+{validator_section}
+
+{"All automated validators passed." if all_passed else f"{len(failed_validators)} validator(s) FAILED — see details above."}
+
+**Your role**: Review the implementation against the acceptance criteria in the spec.
+Use the validator results above as evidence. Focus on:
+1. Does the code meet ALL acceptance criteria?
+2. Are the validator failures (if any) spec-relevant?
+3. Are there issues the validators didn't catch?
+
+---
+
+"""
+
+    # Delegate to existing session runner with validator context injected
+    return await run_qa_agent_session(
+        client=client,
+        project_dir=project_dir,
+        spec_dir=spec_dir,
+        qa_session=qa_session,
+        max_iterations=max_iterations,
+        verbose=verbose,
+        extra_context=validator_context,
+    )

@@ -21,6 +21,49 @@ from uuid import uuid4
 TASK_EVENT_PREFIX = "__TASK_EVENT__:"
 _DEBUG = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
 
+
+def _fire_hook(event_type: str, context: dict) -> None:
+    """Fire registered hooks for a task event (best-effort, non-blocking).
+
+    Uses asyncio if a loop is running, otherwise fires synchronously.
+    Errors are silently ignored to never block the pipeline.
+    """
+    try:
+        from core.hooks import hook_registry
+
+        if not hook_registry.handler_count(event_type):
+            return
+
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(hook_registry.emit(event_type, context))
+        except RuntimeError:
+            # No running loop — skip async hooks
+            pass
+    except Exception:
+        pass  # Non-critical: hooks must never break the pipeline
+
+
+def append_event_log(spec_dir: Path, event: dict) -> None:
+    """Append event to immutable JSONL log file (OpenClaw pattern).
+
+    This provides an append-only event history that:
+    - Avoids file lock issues (append is atomic on most OS)
+    - Preserves complete event history for debugging/replay
+    - Coexists with implementation_plan.json (which stores final snapshot)
+
+    Each line is one JSON object with timestamp.
+    """
+    log_file = spec_dir / "events.jsonl"
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, default=str) + "\n")
+    except (OSError, UnicodeEncodeError):
+        pass  # Non-critical: best-effort logging
+
 # Status mapping for XState state to TaskStatus
 XSTATE_TO_TASK_STATUS = {
     "backlog": "backlog",
@@ -83,6 +126,20 @@ def _persist_status_to_plan(
 
         plan["updated_at"] = datetime.now(timezone.utc).isoformat()
 
+        # Schema validation before write (OpenClaw pattern: config-as-code with validation)
+        from core.schema import validate_plan
+
+        is_valid, schema_errors = validate_plan(plan)
+        if not is_valid and _DEBUG:
+            try:
+                sys.stderr.write(
+                    f"[task_event] Schema warnings before persist: {schema_errors}\n"
+                )
+                sys.stderr.flush()
+            except (OSError, UnicodeEncodeError):
+                pass
+        # Write even if schema warns — don't block status updates, just log
+
         # Write atomically using temp file pattern
         from core.file_utils import write_json_atomic
 
@@ -133,7 +190,21 @@ def _load_task_metadata(spec_dir: Path) -> dict:
         return {}
     try:
         with open(metadata_path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        # Schema validation (OpenClaw pattern: catch dependency field conflicts early)
+        if _DEBUG:
+            from core.schema import validate_task_metadata
+
+            is_valid, schema_errors = validate_task_metadata(data)
+            if not is_valid:
+                try:
+                    sys.stderr.write(
+                        f"[task_event] task_metadata schema issues: {schema_errors}\n"
+                    )
+                    sys.stderr.flush()
+                except (OSError, UnicodeEncodeError):
+                    pass
+        return data
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return {}
 
@@ -201,6 +272,13 @@ class TaskEventEmitter:
                     sys.stderr.flush()
                 except (OSError, UnicodeEncodeError):
                     pass  # Silent on complete I/O failure
+
+        # Append to immutable JSONL event log (OpenClaw pattern)
+        if self._spec_dir:
+            append_event_log(self._spec_dir, event)
+
+        # Fire registered hooks (OpenClaw P3: event-based extension)
+        _fire_hook(event_type, event)
 
         # Auto-persist status for key events (CLI-only execution support)
         if self._spec_dir:

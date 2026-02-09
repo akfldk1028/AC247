@@ -148,6 +148,12 @@ FRAMEWORK_COMMANDS: dict[str, set[str]] = {
     # Elixir/Erlang
     "phoenix": {"mix", "iex"},
     "ecto": {"mix"},
+    # Unity
+    "unity": {
+        "Unity",
+        "unity-editor",
+        "UnityHub",
+    },
     # Dart/Flutter
     "flutter": {
         "flutter",

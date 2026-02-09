@@ -173,6 +173,10 @@ class TaskDaemon:
         self._queue_condition = threading.Condition(self._lock)
         self._all_complete_fired = False  # Guard against double-firing (BUG 5)
 
+        # Event-driven status writes (OpenClaw pattern: real-time updates)
+        # Set by any state change; the status writer thread wakes immediately.
+        self._status_dirty = threading.Event()
+
     def _setup_logging(self, log_file: Path | None) -> None:
         """Setup logging configuration."""
         self._logger = logging.getLogger(f"TaskDaemon-{self.project_dir.name}")
@@ -426,6 +430,7 @@ class TaskDaemon:
             self._queue_condition.notify()
 
         self._logger.info(f"Queued: {spec_id} (priority={priority}, type={task_type})")
+        self._notify_status_change()
 
     def _load_plan(self, spec_dir: Path) -> dict | None:
         """Load implementation plan.
@@ -627,11 +632,13 @@ class TaskDaemon:
                 except Exception:
                     pass
 
+            self._notify_status_change()
             return True
 
         except Exception as e:
             self._logger.error(f"Failed to start: {spec_id} - {e}")
             self._state_manager.record_error(spec_id, str(e))
+            self._notify_status_change()
             return False
 
     def _read_output(self, spec_id: str, process: subprocess.Popen) -> None:
@@ -728,6 +735,8 @@ class TaskDaemon:
 
         with self._queue_condition:
             self._queue_condition.notify()
+
+        self._notify_status_change()
 
         if self._on_task_complete:
             try:
@@ -884,6 +893,7 @@ class TaskDaemon:
             self._update_plan_status(state.spec_dir, "error", "error", "Max recovery")
             with self._lock:
                 self.running_tasks.pop(spec_id, None)
+            self._notify_status_change()
             if self._on_task_stuck:
                 try:
                     self._on_task_stuck(spec_id)
@@ -966,6 +976,10 @@ class TaskDaemon:
     # -------------------------------------------------------------------------
     # Status
     # -------------------------------------------------------------------------
+
+    def _notify_status_change(self) -> None:
+        """Signal that daemon status has changed (triggers immediate file write)."""
+        self._status_dirty.set()
 
     def get_status(self) -> dict:
         """Get daemon status."""

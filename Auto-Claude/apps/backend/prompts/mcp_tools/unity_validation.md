@@ -35,6 +35,15 @@ grep -c 'result="Passed"' test-results-playmode.xml
 grep -c 'result="Failed"' test-results-playmode.xml
 ```
 
+### Save Test Results (MANDATORY)
+
+```bash
+# Copy test result XMLs to spec directory for audit trail
+mkdir -p test-results
+cp test-results-editmode.xml test-results/ 2>/dev/null || true
+cp test-results-playmode.xml test-results/ 2>/dev/null || true
+```
+
 ### Build Verification
 
 ```bash
@@ -63,6 +72,38 @@ dotnet build *.sln 2>&1 || echo "No .sln found or dotnet not available"
 find Assets -name "*.cs" -exec grep -l "class " {} \; | head -20
 ```
 
+### WebGL Build: Browser Verification (MANDATORY if build target is WebGL)
+
+If the project builds to WebGL, you MUST verify it in a browser with Playwright:
+
+```bash
+# Serve the WebGL build
+cd Build/ && python -m http.server 8080 &
+# Or: npx serve Build/ -p 8080 &
+
+mkdir -p screenshots
+```
+
+```
+Tool: mcp__playwright__browser_navigate
+Args: {"url": "http://localhost:8080"}
+```
+
+```
+Tool: mcp__playwright__browser_take_screenshot
+Args: {"fileName": "screenshots/01-webgl-initial"}
+```
+
+```
+Tool: mcp__playwright__browser_console_messages
+```
+
+Wait for Unity loader to finish, then take another screenshot:
+```
+Tool: mcp__playwright__browser_take_screenshot
+Args: {"fileName": "screenshots/02-webgl-loaded"}
+```
+
 ### Document Findings
 
 ```
@@ -79,6 +120,11 @@ UNITY VALIDATION:
   - Build target: [StandaloneWindows64/Android/WebGL/etc.]
   - Build errors: [list or "None"]
   - Build log: [summary of warnings]
+- WebGL Browser Verification: PASS/FAIL/SKIPPED/N/A
+  - Screenshots saved to screenshots/: YES/NO
+  - Screenshots: [list filenames]
+  - Console errors: [list or "None"]
+- Test results saved: YES/NO (test-results-*.xml)
 - Issues: [list or "None"]
 ```
 

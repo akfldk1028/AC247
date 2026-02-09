@@ -66,7 +66,7 @@ from .base import (
     MAX_CONCURRENCY_RETRIES,
     MAX_RETRY_DELAY_SECONDS,
 )
-from .memory_manager import debug_memory_system_status, get_graphiti_context
+from .memory_manager import debug_memory_system_status, get_graphiti_context, save_session_memory
 from .session import post_session_processing, run_agent_session
 from .utils import (
     find_phase_for_subtask,
@@ -738,6 +738,19 @@ async def _run_autonomous_agent_inner(
             if linear_task and linear_task.task_id:
                 await linear_build_complete(spec_dir)
                 print_status("Linear notified: build complete, ready for QA", "success")
+
+            # Save coder session insights to Graphiti for cross-session learning
+            try:
+                await save_session_memory(
+                    spec_dir=spec_dir,
+                    project_dir=project_dir,
+                    subtask_id="build_complete",
+                    session_num=iteration,
+                    success=True,
+                    subtasks_completed=[f"{completed}/{total} subtasks"],
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save coder session memory: {e}")
 
             break
 

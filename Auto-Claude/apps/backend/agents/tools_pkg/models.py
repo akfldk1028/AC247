@@ -4,8 +4,9 @@ Tool Models and Constants
 
 Defines tool name constants and configuration for auto-claude MCP tools.
 
-This module is the single source of truth for all tool definitions used by
-the Claude Agent SDK client. Tool lists are organized by category:
+This module delegates to core.agent_registry (unified AgentRegistry) for
+agent configuration. The AGENT_CONFIGS dict and public API functions remain
+unchanged for backward compatibility.
 
 - Base tools: Core file operations (Read, Write, Edit, etc.)
 - Web tools: Documentation and research (WebFetch, WebSearch)
@@ -14,39 +15,25 @@ the Claude Agent SDK client. Tool lists are organized by category:
 - Custom agents: User-defined agents from custom_agents/config.json
 """
 
-import json
 import logging
 import os
 from pathlib import Path
 
+from core.agent_registry import (
+    BASE_READ_TOOLS,
+    BASE_WRITE_TOOLS,
+    TOOL_CREATE_BATCH_CHILD_SPECS,
+    TOOL_CREATE_CHILD_SPEC,
+    TOOL_GET_BUILD_PROGRESS,
+    TOOL_GET_SESSION_CONTEXT,
+    TOOL_RECORD_DISCOVERY,
+    TOOL_RECORD_GOTCHA,
+    TOOL_UPDATE_QA_STATUS,
+    TOOL_UPDATE_SUBTASK_STATUS,
+    WEB_TOOLS,
+)
+
 logger = logging.getLogger(__name__)
-
-# =============================================================================
-# Base Tools (Built-in Claude Code tools)
-# =============================================================================
-
-# Core file operation tools
-BASE_READ_TOOLS = ["Read", "Glob", "Grep"]
-BASE_WRITE_TOOLS = ["Write", "Edit", "Bash"]
-
-# Web tools for documentation lookup and research
-# Always available to all agents for accessing external information
-WEB_TOOLS = ["WebFetch", "WebSearch"]
-
-# =============================================================================
-# Auto-Claude MCP Tools (Custom build management)
-# =============================================================================
-
-# Auto-Claude MCP tool names (prefixed with mcp__auto-claude__)
-TOOL_UPDATE_SUBTASK_STATUS = "mcp__auto-claude__update_subtask_status"
-TOOL_GET_BUILD_PROGRESS = "mcp__auto-claude__get_build_progress"
-TOOL_RECORD_DISCOVERY = "mcp__auto-claude__record_discovery"
-TOOL_RECORD_GOTCHA = "mcp__auto-claude__record_gotcha"
-TOOL_GET_SESSION_CONTEXT = "mcp__auto-claude__get_session_context"
-TOOL_UPDATE_QA_STATUS = "mcp__auto-claude__update_qa_status"
-# Design agent tools for creating child specs (parallel task decomposition)
-TOOL_CREATE_CHILD_SPEC = "mcp__auto-claude__create_child_spec"
-TOOL_CREATE_BATCH_CHILD_SPECS = "mcp__auto-claude__create_batch_child_specs"
 
 # =============================================================================
 # External MCP Tools
@@ -92,19 +79,28 @@ GRAPHITI_MCP_TOOLS = [
 # Browser Automation MCP Tools (QA agents only)
 # =============================================================================
 
-# Puppeteer MCP tools for web browser automation
+# Playwright MCP tools for web browser automation (@playwright/mcp)
 # Used for web frontend validation (non-Electron web apps)
-# NOTE: Screenshots must be compressed (1280x720, quality 60, JPEG) to stay under
-# Claude SDK's 1MB JSON message buffer limit. See GitHub issue #74.
-PUPPETEER_TOOLS = [
-    "mcp__puppeteer__puppeteer_connect_active_tab",
-    "mcp__puppeteer__puppeteer_navigate",
-    "mcp__puppeteer__puppeteer_screenshot",
-    "mcp__puppeteer__puppeteer_click",
-    "mcp__puppeteer__puppeteer_fill",
-    "mcp__puppeteer__puppeteer_select",
-    "mcp__puppeteer__puppeteer_hover",
-    "mcp__puppeteer__puppeteer_evaluate",
+# Uses accessibility snapshots instead of CSS selectors — works with Flutter CanvasKit too.
+# NOTE: Screenshots must be compressed to stay under Claude SDK's 1MB JSON message buffer limit.
+PLAYWRIGHT_TOOLS = [
+    "mcp__playwright__browser_navigate",
+    "mcp__playwright__browser_navigate_back",
+    "mcp__playwright__browser_navigate_forward",
+    "mcp__playwright__browser_snapshot",
+    "mcp__playwright__browser_take_screenshot",
+    "mcp__playwright__browser_click",
+    "mcp__playwright__browser_type",
+    "mcp__playwright__browser_hover",
+    "mcp__playwright__browser_select_option",
+    "mcp__playwright__browser_press_key",
+    "mcp__playwright__browser_console_messages",
+    "mcp__playwright__browser_tab_list",
+    "mcp__playwright__browser_tab_new",
+    "mcp__playwright__browser_tab_select",
+    "mcp__playwright__browser_close",
+    "mcp__playwright__browser_wait_for",
+    "mcp__playwright__browser_resize",
 ]
 
 # Electron MCP tools for desktop app automation (when ELECTRON_MCP_ENABLED is set)
@@ -117,6 +113,22 @@ ELECTRON_TOOLS = [
     "mcp__electron__take_screenshot",  # Capture screenshot of Electron window
     "mcp__electron__send_command_to_electron",  # Send commands (click, fill, evaluate JS)
     "mcp__electron__read_electron_logs",  # Read console logs from Electron app
+]
+
+# Marionette MCP tools for Flutter runtime interaction (leancodepl/marionette_mcp)
+# Connects to running Flutter apps via VM Service protocol for widget-level interaction.
+# Requires: dart pub global activate marionette_mcp
+# Requires: marionette_flutter package added to the Flutter app + MarionetteBinding in main.dart
+MARIONETTE_TOOLS = [
+    "mcp__marionette__connect",                  # Connect to Flutter app via VM service URI
+    "mcp__marionette__disconnect",               # Disconnect from the app
+    "mcp__marionette__get_interactive_elements",  # List all interactive widgets on screen
+    "mcp__marionette__tap",                       # Tap a widget by key or text
+    "mcp__marionette__enter_text",                # Enter text into a text field
+    "mcp__marionette__scroll_to",                 # Scroll until element is visible
+    "mcp__marionette__get_logs",                  # Retrieve app logs
+    "mcp__marionette__take_screenshots",          # Capture screenshots (base64)
+    "mcp__marionette__hot_reload",                # Hot reload the app
 ]
 
 # =============================================================================
@@ -136,309 +148,33 @@ def is_electron_mcp_enabled() -> bool:
 
 
 # =============================================================================
-# Agent Configuration Registry
+# Agent Configuration Registry (backed by AgentRegistry)
 # =============================================================================
-# Single source of truth for phase → tools → MCP servers mapping.
-# This enables phase-aware tool control and context window optimization.
-
-AGENT_CONFIGS = {
-    # ═══════════════════════════════════════════════════════════════════════
-    # SPEC CREATION PHASES (Minimal tools, fast startup)
-    # ═══════════════════════════════════════════════════════════════════════
-    "spec_gatherer": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": [],  # No MCP needed - just reads project
-        "auto_claude_tools": [],
-        "thinking_default": "medium",
-    },
-    "spec_researcher": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7"],  # Needs docs lookup
-        "auto_claude_tools": [],
-        "thinking_default": "medium",
-    },
-    "spec_writer": {
-        "tools": BASE_READ_TOOLS + BASE_WRITE_TOOLS,
-        "mcp_servers": [],  # Just writes spec.md
-        "auto_claude_tools": [],
-        "thinking_default": "high",
-    },
-    "spec_critic": {
-        "tools": BASE_READ_TOOLS,
-        "mcp_servers": [],  # Self-critique, no external tools
-        "auto_claude_tools": [],
-        "thinking_default": "ultrathink",
-    },
-    "spec_discovery": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "medium",
-    },
-    "spec_context": {
-        "tools": BASE_READ_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "medium",
-    },
-    "spec_validation": {
-        "tools": BASE_READ_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "high",
-    },
-    "spec_compaction": {
-        "tools": BASE_READ_TOOLS + BASE_WRITE_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "medium",
-    },
-    # ═══════════════════════════════════════════════════════════════════════
-    # BUILD PHASES (Full tools + Graphiti memory)
-    # Note: "linear" is conditional on project setting "update_linear_with_tasks"
-    # ═══════════════════════════════════════════════════════════════════════
-    "planner": {
-        "tools": BASE_READ_TOOLS + BASE_WRITE_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7", "graphiti", "auto-claude"],
-        "mcp_servers_optional": ["linear"],  # Only if project setting enabled
-        "auto_claude_tools": [
-            TOOL_GET_BUILD_PROGRESS,
-            TOOL_GET_SESSION_CONTEXT,
-            TOOL_RECORD_DISCOVERY,
-            # Design agent tools for parallel task decomposition
-            TOOL_CREATE_CHILD_SPEC,
-            TOOL_CREATE_BATCH_CHILD_SPECS,
-        ],
-        "thinking_default": "high",
-    },
-    "coder": {
-        "tools": BASE_READ_TOOLS + BASE_WRITE_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7", "graphiti", "auto-claude"],
-        "mcp_servers_optional": ["linear"],
-        "auto_claude_tools": [
-            TOOL_UPDATE_SUBTASK_STATUS,
-            TOOL_GET_BUILD_PROGRESS,
-            TOOL_RECORD_DISCOVERY,
-            TOOL_RECORD_GOTCHA,
-            TOOL_GET_SESSION_CONTEXT,
-        ],
-        "thinking_default": "none",  # Coding doesn't use extended thinking
-    },
-    # ═══════════════════════════════════════════════════════════════════════
-    # QA PHASES (Read + test + browser + Graphiti memory)
-    # ═══════════════════════════════════════════════════════════════════════
-    "qa_reviewer": {
-        # Read + Write/Edit (for QA reports and plan updates) + Bash (for tests)
-        # Note: Reviewer writes to spec directory only (qa_report.md, implementation_plan.json)
-        "tools": BASE_READ_TOOLS + BASE_WRITE_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7", "graphiti", "auto-claude", "browser"],
-        "mcp_servers_optional": ["linear"],  # For updating issue status
-        "auto_claude_tools": [
-            TOOL_GET_BUILD_PROGRESS,
-            TOOL_UPDATE_QA_STATUS,
-            TOOL_GET_SESSION_CONTEXT,
-        ],
-        "thinking_default": "high",
-    },
-    "qa_fixer": {
-        "tools": BASE_READ_TOOLS + BASE_WRITE_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7", "graphiti", "auto-claude", "browser"],
-        "mcp_servers_optional": ["linear"],
-        "auto_claude_tools": [
-            TOOL_UPDATE_SUBTASK_STATUS,
-            TOOL_GET_BUILD_PROGRESS,
-            TOOL_UPDATE_QA_STATUS,
-            TOOL_RECORD_GOTCHA,
-        ],
-        "thinking_default": "medium",
-    },
-    # ═══════════════════════════════════════════════════════════════════════
-    # VERIFICATION & ERROR-CHECK PHASES
-    # ═══════════════════════════════════════════════════════════════════════
-    "verify": {
-        "tools": BASE_READ_TOOLS + BASE_WRITE_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7", "auto-claude", "browser"],
-        "auto_claude_tools": [TOOL_GET_BUILD_PROGRESS, TOOL_GET_SESSION_CONTEXT],
-        "thinking_default": "high",
-    },
-    "error_check": {
-        "tools": BASE_READ_TOOLS + BASE_WRITE_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7", "graphiti", "auto-claude"],
-        "auto_claude_tools": [
-            TOOL_UPDATE_SUBTASK_STATUS,
-            TOOL_GET_BUILD_PROGRESS,
-            TOOL_RECORD_GOTCHA,
-        ],
-        "thinking_default": "medium",
-    },
-    # ═══════════════════════════════════════════════════════════════════════
-    # UTILITY PHASES (Minimal, no MCP)
-    # ═══════════════════════════════════════════════════════════════════════
-    "insights": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        # Note: Default to "none" because insight_extractor uses Haiku which doesn't support thinking
-        # If using Sonnet/Opus models, override max_thinking_tokens in create_simple_client()
-        "thinking_default": "none",
-    },
-    "merge_resolver": {
-        "tools": [],  # Text-only analysis
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "low",
-    },
-    "commit_message": {
-        "tools": [],
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "low",
-    },
-    "pr_template_filler": {
-        "tools": BASE_READ_TOOLS,  # Read-only — reads diff, template, spec
-        "mcp_servers": [],  # No MCP needed, context passed via prompt
-        "auto_claude_tools": [],
-        "thinking_default": "low",  # Fast utility task for structured fill-in
-    },
-    "pr_reviewer": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,  # Read-only
-        "mcp_servers": ["context7"],
-        "auto_claude_tools": [],
-        "thinking_default": "high",
-    },
-    "pr_orchestrator_parallel": {
-        # Read-only for parallel PR orchestrator
-        # NOTE: Do NOT add "Task" here - the SDK auto-allows Task when agents are defined
-        # via the --agents flag. Explicitly adding it interferes with agent registration.
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7"],
-        "auto_claude_tools": [],
-        "thinking_default": "high",
-    },
-    "pr_followup_parallel": {
-        # Read-only for parallel followup reviewer
-        # NOTE: Do NOT add "Task" here - same reason as pr_orchestrator_parallel
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7"],
-        "auto_claude_tools": [],
-        "thinking_default": "high",
-    },
-    "pr_finding_validator": {
-        # Standalone validator for re-checking findings against actual code
-        # Called separately from orchestrator to validate findings with fresh context
-        "tools": BASE_READ_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "medium",
-    },
-    # ═══════════════════════════════════════════════════════════════════════
-    # ANALYSIS PHASES
-    # ═══════════════════════════════════════════════════════════════════════
-    "analysis": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7"],
-        "auto_claude_tools": [],
-        "thinking_default": "medium",
-    },
-    "batch_analysis": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "low",
-    },
-    "batch_validation": {
-        "tools": BASE_READ_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "low",
-    },
-    # ═══════════════════════════════════════════════════════════════════════
-    # ROADMAP & IDEATION
-    # ═══════════════════════════════════════════════════════════════════════
-    "roadmap_discovery": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7"],
-        "auto_claude_tools": [],
-        "thinking_default": "high",
-    },
-    "competitor_analysis": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": ["context7"],  # WebSearch for competitor research
-        "auto_claude_tools": [],
-        "thinking_default": "high",
-    },
-    "ideation": {
-        "tools": BASE_READ_TOOLS + WEB_TOOLS,
-        "mcp_servers": [],
-        "auto_claude_tools": [],
-        "thinking_default": "high",
-    },
-}
+# AGENT_CONFIGS is now a shim that reads from core.agent_registry.
+# All agent definitions live in core/agent_registry.py (single source of truth).
+# Public API functions below remain unchanged for backward compatibility.
 
 
-# =============================================================================
-# Custom Agent Auto-Registration
-# =============================================================================
-# Loads custom agents from custom_agents/config.json and registers them
-# into AGENT_CONFIGS automatically at module load time.
+def _build_agent_configs() -> dict:
+    """Build AGENT_CONFIGS dict from the unified AgentRegistry.
 
+    Returns a plain dict that behaves identically to the old AGENT_CONFIGS.
+    """
+    from core.agent_registry import AgentRegistry
+
+    registry = AgentRegistry.instance()
+    configs = {}
+    for agent_id, defn in registry.all_agents().items():
+        configs[agent_id] = defn.to_agent_config_dict()
+    return configs
+
+
+# Build once at module load — identical to old behavior
+AGENT_CONFIGS = _build_agent_configs()
+
+# Re-export custom agents dir for backward compat
 CUSTOM_AGENTS_DIR = Path(__file__).parent.parent.parent / "custom_agents"
 CUSTOM_AGENTS_CONFIG = CUSTOM_AGENTS_DIR / "config.json"
-
-
-def _load_custom_agents() -> dict:
-    """
-    Load custom agent configurations from custom_agents/config.json.
-
-    Custom agents are automatically registered into AGENT_CONFIGS.
-    Each agent in config.json should have:
-    - prompt_file: Path to the .md prompt file (relative to custom_agents/prompts/)
-    - description: Human-readable description
-    - tools: List of tool names
-    - mcp_servers: List of MCP server names
-    - thinking_default: Thinking level (none, low, medium, high, ultrathink)
-
-    Returns:
-        Dict of custom agent configs ready to merge into AGENT_CONFIGS
-    """
-    if not CUSTOM_AGENTS_CONFIG.exists():
-        return {}
-
-    try:
-        with open(CUSTOM_AGENTS_CONFIG, encoding="utf-8") as f:
-            config = json.load(f)
-
-        custom_agents = {}
-        agents_data = config.get("agents", {})
-
-        for agent_type, agent_config in agents_data.items():
-            # Validate prompt file exists
-            prompt_file = agent_config.get("prompt_file", "")
-            prompt_path = CUSTOM_AGENTS_DIR / "prompts" / prompt_file
-            if not prompt_path.exists():
-                logger.warning(
-                    f"Custom agent '{agent_type}' prompt file not found: {prompt_path}"
-                )
-                continue
-
-            # Build AGENT_CONFIGS compatible entry
-            custom_agents[agent_type] = {
-                "tools": agent_config.get("tools", BASE_READ_TOOLS + BASE_WRITE_TOOLS),
-                "mcp_servers": agent_config.get("mcp_servers", []),
-                "auto_claude_tools": agent_config.get("auto_claude_tools", []),
-                "thinking_default": agent_config.get("thinking_default", "medium"),
-                # Custom agent metadata
-                "_custom": True,
-                "_prompt_file": str(prompt_path),
-                "_description": agent_config.get("description", ""),
-            }
-            logger.info(f"Registered custom agent: {agent_type}")
-
-        return custom_agents
-
-    except (json.JSONDecodeError, OSError) as e:
-        logger.error(f"Failed to load custom agents config: {e}")
-        return {}
 
 
 def get_custom_agent_prompt(agent_type: str) -> str | None:
@@ -451,14 +187,14 @@ def get_custom_agent_prompt(agent_type: str) -> str | None:
     Returns:
         Prompt content as string, or None if not a custom agent
     """
-    if agent_type not in AGENT_CONFIGS:
+    from core.agent_registry import AgentRegistry
+
+    reg = AgentRegistry.instance()
+    defn = reg.get(agent_type)
+    if defn is None or not defn.is_custom:
         return None
 
-    config = AGENT_CONFIGS[agent_type]
-    if not config.get("_custom"):
-        return None
-
-    prompt_path = config.get("_prompt_file")
+    prompt_path = defn.custom_prompt_file
     if not prompt_path:
         return None
 
@@ -476,33 +212,39 @@ def list_custom_agents() -> list[dict]:
     Returns:
         List of dicts with agent_type, description, prompt_file
     """
+    from core.agent_registry import AgentRegistry
+
+    reg = AgentRegistry.instance()
     result = []
-    for agent_type, config in AGENT_CONFIGS.items():
-        if config.get("_custom"):
+    for agent_id, defn in reg.all_agents().items():
+        if defn.is_custom:
             result.append({
-                "agent_type": agent_type,
-                "description": config.get("_description", ""),
-                "prompt_file": config.get("_prompt_file", ""),
+                "agent_type": agent_id,
+                "description": defn.description,
+                "prompt_file": defn.custom_prompt_file or "",
             })
     return result
 
 
-# Auto-register custom agents at module load
-_custom_agents = _load_custom_agents()
-if _custom_agents:
-    # Check for name conflicts with built-in agents
-    conflicts = set(_custom_agents.keys()) & set(AGENT_CONFIGS.keys())
-    if conflicts:
-        logger.warning(
-            f"Custom agent names conflict with built-in agents: {conflicts}. "
-            f"These will be skipped. Use unique names like 's3_xxx' prefix."
-        )
-        for conflict in conflicts:
-            del _custom_agents[conflict]
+def get_custom_agent_executor_configs() -> dict[str, dict]:
+    """
+    Return custom agent execution configs for executor.py AGENT_REGISTRY.
 
-    if _custom_agents:
-        AGENT_CONFIGS.update(_custom_agents)
-        logger.info(f"Loaded {len(_custom_agents)} custom agents: {list(_custom_agents.keys())}")
+    Called by executor.py to auto-register custom agents into AGENT_REGISTRY
+    so they get the right execution config (use_claude_cli, script, prompt_template).
+
+    Returns:
+        Dict mapping agent_type → executor config props
+    """
+    from core.agent_registry import AgentRegistry
+
+    reg = AgentRegistry.instance()
+    result = {}
+    for agent_id, defn in reg.all_agents().items():
+        if not defn.is_custom:
+            continue
+        result[agent_id] = defn.to_executor_config_dict()
+    return result
 
 
 # =============================================================================
@@ -553,8 +295,9 @@ def _map_mcp_server_name(
         "graphiti": "graphiti",
         "linear": "linear",
         "electron": "electron",
-        "puppeteer": "puppeteer",
+        "puppeteer": "playwright",  # backwards compat alias
         "playwright": "playwright",
+        "marionette": "marionette",
         "auto-claude": "auto-claude",
     }
     # Check if it's a known mapping
@@ -577,7 +320,7 @@ def get_required_mcp_servers(
     Get MCP servers required for this agent type.
 
     Handles dynamic server selection:
-    - "browser" → electron (if is_electron) or puppeteer (if is_web_frontend)
+    - "browser" → electron (if is_electron) or playwright (if web/flutter/expo/tauri)
     - "linear" → only if in mcp_servers_optional AND linear_enabled is True
     - "graphiti" → only if GRAPHITI_MCP_URL is set
     - Respects per-project MCP config overrides from .auto-claude/.env
@@ -589,7 +332,7 @@ def get_required_mcp_servers(
         linear_enabled: Whether Linear integration is enabled for this project
         mcp_config: Per-project MCP server toggles from .auto-claude/.env
                    Keys: CONTEXT7_ENABLED, LINEAR_MCP_ENABLED, ELECTRON_MCP_ENABLED,
-                         PUPPETEER_MCP_ENABLED, AGENT_MCP_<agent>_ADD/REMOVE
+                         BROWSER_MCP_DISABLED, AGENT_MCP_<agent>_ADD/REMOVE
 
     Returns:
         List of MCP server names to start
@@ -615,26 +358,38 @@ def get_required_mcp_servers(
         if str(linear_mcp_enabled).lower() != "false":
             servers.append("linear")
 
-    # Handle dynamic "browser" → electron/puppeteer based on project type and config
+    # Handle dynamic "browser" → electron/playwright based on project type and config
     if "browser" in servers:
         servers = [s for s in servers if s != "browser"]
         if project_capabilities:
             is_electron = project_capabilities.get("is_electron", False)
             is_web_frontend = project_capabilities.get("is_web_frontend", False)
+            is_flutter = project_capabilities.get("is_flutter", False)
+            is_expo = project_capabilities.get("is_expo", False)
+            is_tauri = project_capabilities.get("is_tauri", False)
 
-            # Check per-project overrides (default false for both)
+            needs_browser = is_web_frontend or is_flutter or is_expo or is_tauri
+
+            # Check per-project overrides
             electron_enabled = mcp_config.get("ELECTRON_MCP_ENABLED", "false")
-            puppeteer_enabled = mcp_config.get("PUPPETEER_MCP_ENABLED", "false")
 
             # Electron: enabled by project config OR global env var
             if is_electron and (
                 str(electron_enabled).lower() == "true" or is_electron_mcp_enabled()
             ):
                 servers.append("electron")
-            # Puppeteer: enabled by project config (no global env var)
-            elif is_web_frontend and not is_electron:
-                if str(puppeteer_enabled).lower() == "true":
-                    servers.append("puppeteer")
+            # Playwright: auto-enabled for web apps (opt-out via BROWSER_MCP_DISABLED=true)
+            elif needs_browser and not is_electron:
+                browser_disabled = mcp_config.get("BROWSER_MCP_DISABLED", "false")
+                if str(browser_disabled).lower() != "true":
+                    servers.append("playwright")
+
+            # Marionette MCP: auto-enabled for Flutter projects (widget-level interaction)
+            # Opt-out via MARIONETTE_MCP_DISABLED=true in .auto-claude/.env
+            if is_flutter:
+                marionette_disabled = mcp_config.get("MARIONETTE_MCP_DISABLED", "false")
+                if str(marionette_disabled).lower() != "true":
+                    servers.append("marionette")
 
     # Filter graphiti if not enabled
     if "graphiti" in servers:

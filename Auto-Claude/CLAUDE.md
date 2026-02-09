@@ -103,10 +103,10 @@ Auto Claude is a desktop application (+ CLI) where users describe a goal and AI 
 autonomous-coding/
 ├── apps/
 │   ├── backend/                 # Python backend/CLI — ALL agent logic
-│   │   ├── core/                # client.py, auth.py, worktree.py, platform/
+│   │   ├── core/                # agent_registry.py, pipeline.py, client.py, auth.py, platform/
 │   │   ├── security/            # Command allowlisting, validators, hooks
 │   │   ├── agents/              # planner, coder, session management
-│   │   ├── qa/                  # reviewer, fixer, loop, criteria
+│   │   ├── qa/                  # reviewer, fixer, loop, criteria, validators/
 │   │   ├── spec/                # Spec creation pipeline
 │   │   ├── cli/                 # CLI commands (spec, build, workspace, QA)
 │   │   ├── context/             # Task context building, semantic search
@@ -160,6 +160,7 @@ cd apps/frontend && npm install
 cd apps/backend
 python runners/spec_runner.py --interactive            # Create spec interactively
 python runners/spec_runner.py --task "description"      # Create from task
+python runners/spec_runner.py --task "desc" --task-type design  # Design task (creates child tasks)
 python run.py --spec 001                        # Run autonomous build
 python run.py --spec 001 --qa                   # Run QA validation
 python run.py --spec 001 --merge                # Merge completed build
@@ -175,6 +176,9 @@ cd apps/backend
 
 # Step 1: Create spec (--no-build sets status to "queue" for daemon pickup)
 python runners/spec_runner.py --task "description" --project-dir /path/to/project --no-build
+
+# Step 1b: Create DESIGN task (auto-decomposes into child tasks visible in UI Kanban)
+python runners/spec_runner.py --task "description" --project-dir /path --no-build --task-type design
 
 # Step 2: Start daemon (watches specs/, auto-executes, writes daemon_status.json for UI)
 python runners/daemon_runner.py --project-dir /path/to/project \
@@ -198,6 +202,126 @@ spec_runner.py --no-build → creates spec (status: "queue")
 - **--no-build** flag: creates spec only, sets status to "queue" for daemon pickup
 - **--auto-merge** flag: auto-merges worktree to project after QA passes (no manual intervention)
 - **daemon_runner.py** is needed for the UI to show real-time task progress (writes daemon_status.json)
+
+### Daemon Infrastructure (Real-Time Communication)
+
+The daemon uses a layered communication architecture for sub-second UI updates:
+
+```
+┌───────────────────────────────┐
+│  Task Daemon (__init__.py)    │
+│  _notify_status_change()      │ ← Fires on every state transition
+│  _status_dirty (Event)        │
+└──────┬────────────────────────┘
+       │ immediate wake
+┌──────▼────────────────────────┐
+│  Status Writer Thread         │
+│  daemon_runner.py             │
+│  (event-driven + 30s heartbeat│
+│   writes daemon_status.json)  │
+│  + ws_server.broadcast()      │ ← WebSocket push to connected UIs
+└──────┬───────────┬────────────┘
+       │ file      │ ws://127.0.0.1:18800
+┌──────▼───────────▼────────────┐
+│  DaemonStatusWatcher (TS)     │
+│  daemon-status-watcher.ts     │
+│  chokidar (100ms) + WS client │ ← Auto-discovers WS from ws_port
+│  processFile() → IPC → UI     │
+└───────────────────────────────┘
+```
+
+**Key modules:**
+
+| Module | Role |
+|--------|------|
+| `services/task_daemon/__init__.py` | Daemon core: task lifecycle, `_notify_status_change()` |
+| `services/task_daemon/ws_server.py` | WebSocket server (port 18800-18809 auto-bind) |
+| `services/task_daemon/executor.py` | Agent registry + task command builder |
+| `runners/daemon_runner.py` | CLI entry, status writer thread, WS startup |
+| `frontend/src/main/daemon-status-watcher.ts` | UI bridge: file polling + WS auto-connect |
+
+**Resilience features (OpenClaw patterns):**
+
+| Feature | Module | Description |
+|---------|--------|-------------|
+| JSONL event log | `core/task_event.py` | Append-only `events.jsonl` — immutable event history |
+| Schema validation | `core/schema.py` | Validates plan/requirements/metadata before write |
+| Exponential backoff | `spec/phases/models.py` | `retry_backoff()` — 2s, 4s delays for transient errors |
+| Retryable error detection | `spec/phases/models.py` | `is_retryable_error()` — rate limits, timeouts, 429/503 |
+| Session logging | `core/session_logger.py` | AGENT_SESSION_START/END events in events.jsonl |
+| Unified agent registry | `core/agent_registry.py` | Single source of truth for all 54 agents (tools, security, execution) |
+| Declarative pipeline | `core/pipeline.py` + `core/pipelines.py` | DAG-based pipeline engine with conditions, parallelism, retry |
+| QA validators | `qa/validators/` + `qa/validator_orchestrator.py` | Independent build/browser/API/DB validators, parallel execution |
+| Custom agent plugins | `core/agent_registry.py` | `custom_agents/config.json` → auto-registered in unified registry |
+| Per-agent exec policy | `core/exec_policy.py` | Agent-level bash restrictions (DENY/READONLY/ALLOWLIST/FULL) |
+| Standard tool groups | `core/tool_policy.py` | 10 built-in `@group` references + 5 ToolProfile presets |
+| Hook sync emit | `core/hooks.py` | `emit_hook_sync()` for tool-call hot paths |
+
+### Security Architecture (4-Layer Defense in Depth)
+
+Auto-Claude enforces bash command security through 4 layers. Each layer runs independently — blocking at any layer stops the command.
+
+```
+Layer 1: Agent Exec Policy  (core/exec_policy.py — NEW)
+   │  Per-agent SecurityLevel: DENY → READONLY → ALLOWLIST → FULL
+   │  DENY agents can't run ANY bash. READONLY allows only safe read binaries.
+   ▼
+Layer 2: Security Hook       (security/hooks.py — EXISTING, untouched)
+   │  Project-aware command allowlisting (detected stack + custom allowlist)
+   │  Specialized validators: git identity, secret scanning, process kill, etc.
+   ▼
+Layer 3: SDK Permissions     (create_client() — EXISTING)
+   │  File operations restricted to project_dir only
+   ▼
+Layer 4: OS Sandbox          (Claude Agent SDK sandbox — EXISTING)
+      OS-level bash isolation
+```
+
+**Key files:**
+
+| File | Role |
+|------|------|
+| `core/agent_registry.py` | `AgentDefinition.security_level` — canonical security level per agent |
+| `core/exec_policy.py` | `SecurityLevel` enum, `AGENT_EXEC_POLICIES` (shim → registry), `evaluate_exec_policy()` |
+| `core/tool_policy.py` | `STANDARD_GROUPS`, `ToolProfile` enum, `get_profile_tools()` |
+| `core/hooks.py` | `emit_hook_sync()`, `TOOL_BEFORE_CALL`/`TOOL_AFTER_CALL`/`TOOL_BLOCKED` |
+| `core/client.py` | `_create_exec_policy_hook()` closure — wires exec_policy into SDK PreToolUse |
+| `security/*` | Untouched — Layer 2 operates independently below exec_policy |
+
+**Agent policy mapping (exec_policy.py):**
+
+| Level | Agents | Bash Access |
+|-------|--------|-------------|
+| DENY | spec_critic, commit_message, pr_template_filler, merge_resolver | None |
+| READONLY | spec_gatherer, spec_researcher, spec_writer, insights, analysis, pr_reviewer, ideation, etc. | cat, ls, grep, git, jq, etc. only |
+| FULL | planner, coder, qa_reviewer, qa_fixer, verify, error_check | Full (defers to SecurityProfile) |
+| ALLOWLIST (default) | Unknown/custom agents | Full (defers to SecurityProfile) |
+
+**Spec-level override:** Add `execPolicy` to `task_metadata.json` to override an agent's built-in policy:
+```json
+{
+  "execPolicy": {
+    "coder": { "securityLevel": "readonly", "extraAllow": ["npm"], "extraDeny": ["rm"] }
+  }
+}
+```
+
+**Standard tool groups (tool_policy.py):**
+
+| Group | Tools |
+|-------|-------|
+| `@fs_read` | Read, Glob, Grep |
+| `@fs_write` | Write, Edit |
+| `@runtime` | Bash |
+| `@web` | WebFetch, WebSearch |
+| `@memory` | mcp__graphiti-memory__*, mcp__auto-claude__record_* |
+| `@docs` | mcp__context7__* |
+| `@browser` | mcp__playwright__*, mcp__electron__*, mcp__marionette__* |
+| `@progress` | mcp__auto-claude__get_build_progress, update_subtask_status |
+| `@qa` | mcp__auto-claude__update_qa_status |
+| `@design` | mcp__auto-claude__create_child_spec, create_batch_child_specs |
+
+**Tool profiles:** `MINIMAL` (@fs_read, @web), `READONLY` (+@docs), `CODING` (+@fs_write, @runtime, @memory, @progress), `QA` (+@browser, @qa), `FULL` (wildcard `*`).
 
 ### Frontend
 ```bash
@@ -270,9 +394,187 @@ Working examples: `agents/planner.py`, `agents/coder.py`, `qa/reviewer.py`, `qa/
 | spec_gatherer/researcher/writer/critic.md | Spec creation pipeline |
 | complexity_assessor.md | AI-based complexity assessment |
 
+**Code quality policies embedded in prompts:**
+- **coder.md**: `HIGH-RISK-UNREVIEWED` annotation for security functions (auth, payment, crypto, sql, etc.) + code annotation policy (TODO/FIXME/HACK rules)
+- **qa_reviewer.md §6.1.5**: High-risk function audit — scans diff for missing `HIGH-RISK` annotations on security functions
+- **qa_reviewer.md §6.1.7**: Code annotation scan — flags bare `TODO`, `FIXME`, `HACK`, `XXX` in diff
+
+### Runtime Validation Docs (`apps/backend/prompts/mcp_tools/`)
+
+QA agents dynamically receive validation documentation based on detected project type. The routing logic is in `prompts_pkg/project_context.py:get_mcp_tools_for_project()`.
+
+| Validation Doc | Triggered By | Strategy |
+|----------------|-------------|----------|
+| `electron_validation.md` | `is_electron` | Electron MCP (screenshot, click, evaluate) |
+| `tauri_validation.md` | `is_tauri` | Playwright on frontend + `cargo check/test` for Rust backend |
+| `flutter_validation.md` | `is_flutter` | `flutter analyze` + Marionette MCP (widget-level) + Playwright (screenshots) |
+| `unity_validation.md` | `is_unity` | Unity batch CLI (EditMode/PlayMode tests) + `dotnet build` fallback |
+| `react_native_validation.md` | `is_react_native` or `is_expo` | Expo web mode via Playwright (port 8081) or native build fallback |
+| `playwright_browser.md` | `is_web_frontend` or `is_flutter` or `is_expo` (not Electron) | Playwright MCP browser automation (a11y snapshots) |
+| `database_validation.md` | `has_database` | Migration checks, schema verification |
+| `api_validation.md` | `has_api` | API endpoint testing |
+
+**Capability detection** happens in `detect_project_capabilities()` from `project_index.json`. Backend-type services automatically get `has_api=True`.
+
+**Adding a new validation type:**
+1. Create `prompts/mcp_tools/new_validation.md` following existing pattern (Tool table → Step flow → Document Findings)
+2. Add capability flag in `detect_project_capabilities()` if needed
+3. Add routing in `get_mcp_tools_for_project()`
+4. Update `qa_reviewer.md` marker comment block (between `<!-- PROJECT-SPECIFIC ... -->` and `<!-- END ... -->`)
+
 ### Spec Directory Structure
 
-Each spec in `.auto-claude/specs/XXX-name/` contains: `spec.md`, `requirements.json`, `context.json`, `implementation_plan.json`, `qa_report.md`, `QA_FIX_REQUEST.md`
+Each spec in `.auto-claude/specs/XXX-name/` contains: `spec.md`, `requirements.json`, `context.json`, `implementation_plan.json`, `qa_report.md`, `QA_FIX_REQUEST.md`, `events.jsonl`
+
+### Unified Agent Registry (`core/agent_registry.py`)
+
+**Single source of truth for all agent definitions.** Previously agent config was scattered across 4 files — now one `AgentDefinition` = one agent.
+
+```python
+from core.agent_registry import AgentRegistry
+
+reg = AgentRegistry.instance()
+coder = reg.get("coder")
+assert coder.security_level == "full"
+assert coder.tool_profile == "CODING"
+
+# List by category
+qa_agents = reg.list_by_category("qa")
+```
+
+**`AgentDefinition` fields** (merged from 4 old registries):
+- **Tools**: `tools`, `mcp_servers`, `mcp_servers_optional`, `auto_claude_tools`, `thinking_default`
+- **Security**: `security_level` (deny/readonly/allowlist/full), `extra_allow`, `extra_deny`
+- **Execution**: `script`, `use_claude_cli`, `prompt_template`, `system_prompt`, `execution_mode`
+- **Tool Profile**: `tool_profile` (MINIMAL/READONLY/CODING/QA/FULL)
+
+**Backward-compatible shims** — old modules read from registry:
+
+| Old Module | Old Dict | Now |
+|-----------|----------|-----|
+| `agents/tools_pkg/models.py` | `AGENT_CONFIGS` | `_build_agent_configs()` → registry shim |
+| `core/exec_policy.py` | `AGENT_EXEC_POLICIES` | `_build_exec_policies()` → registry shim |
+| `services/task_daemon/executor.py` | `AGENT_REGISTRY` | `_build_agent_registry()` → registry shim |
+
+**Adding a new agent**: Add one entry to `BUILTIN_AGENTS` dict in `core/agent_registry.py`. All shims auto-populate.
+
+### Declarative Pipeline Engine (`core/pipeline.py`)
+
+Pipeline stages defined as data, not hardcoded function calls. Supports topological ordering, conditional execution, parallel stages, and retry.
+
+```python
+from core.pipeline import PipelineEngine
+from core.pipelines import get_pipeline
+
+pipeline = get_pipeline("default")   # or "design", "qa_only"
+engine = PipelineEngine(pipeline, {"working_dir": ..., "spec_dir": ..., "model": ...})
+result = await engine.run()
+```
+
+**Built-in pipelines** (`core/pipelines.py`):
+
+| Pipeline | Stages | Use Case |
+|----------|--------|----------|
+| `default` | build → qa (if not skip_qa) → merge | Standard task execution |
+| `design` | decompose | Design task decomposition |
+| `qa_only` | qa | Resume QA validation |
+
+**Programmatic invocation** via `cli/build_commands.py:run_pipeline()`.
+
+### QA Validators (`qa/validators/`)
+
+Independent validator modules — each validator = one n8n node that runs and reports results independently.
+
+```
+qa/validators/
+├── __init__.py           # ValidatorResult, BaseValidator
+├── build_validator.py    # Build, lint, test commands
+├── browser_validator.py  # Real Playwright browser validation (auto dev server + headless Chromium)
+├── api_validator.py      # API endpoint testing
+└── db_validator.py       # Database migration/schema
+```
+
+**Orchestrator** (`qa/validator_orchestrator.py`):
+1. `select_validators(capabilities)` — filter by project type
+2. Build validator runs first (sequential, must pass)
+3. Runtime validators (browser, API, DB) run in parallel
+4. Results aggregated as `list[ValidatorResult]`
+
+**Integration with QA loop** (`qa/loop.py`):
+- Before the QA while-loop, `run_validators()` runs all applicable validators
+- First QA iteration uses `review_with_results()` to inject validator evidence into the reviewer prompt
+- Subsequent iterations (after fixer) use standard `run_qa_agent_session()` — validators only run once
+- Entire validator block is non-blocking: if validators fail to run, QA falls back to standard flow
+
+**Integration with QA reviewer** (`qa/reviewer.py`):
+- `review_with_results(client, ..., validator_results)` — passes pre-computed results to reviewer
+- Reviewer focuses on spec compliance using validator evidence
+
+**Browser validator** (`qa/validators/browser_validator.py`):
+- Uses Python `playwright` package directly (NOT the MCP server) — self-contained n8n node
+- Autonomously starts dev server, polls port (120s timeout), launches Chromium (visible by default)
+- Visible mode: `AUTO_CLAUDE_HEADLESS_BROWSER=true` for CI/unattended mode
+- Flutter: auto-replaces `-d chrome` with `-d web-server`, stdout-based ready detection
+- Flutter: auto-injects `marionette_flutter` + `MarionetteBinding` for Marionette MCP support
+- Screenshots saved to `spec_dir/screenshots/01-initial-load.png`
+- Interactive UI exploration: Tab+Enter navigation, DOM clicks, Flutter semantics
+- Console errors captured and reported as issues
+- Only `passed=False` when navigation completely fails — everything else is evidence for QA reviewer
+- `finally` block always cleans up: close browser → stop playwright → kill dev server tree
+- Graceful skip when playwright not installed or no dev server config found
+- Cross-platform: Windows `CREATE_NEW_PROCESS_GROUP` + `taskkill /F /T`, Unix `killpg(SIGTERM/SIGKILL)`
+- Requires: `pip install playwright && playwright install chromium`
+
+**Marionette MCP** (Flutter widget-level interaction):
+- Auto-enabled for Flutter projects (opt-out via `MARIONETTE_MCP_DISABLED=true`)
+- Provides 9 tools: connect, disconnect, get_interactive_elements, tap, enter_text, scroll_to, get_logs, take_screenshots, hot_reload
+- Requires: `dart pub global activate marionette_mcp` (one-time install)
+- browser_validator auto-injects `marionette_flutter` + patches `main.dart` in worktree
+- QA agent connects via VM service URI and interacts with widgets directly
+- Works with CanvasKit renderer (no DOM dependency)
+
+**Build validator command source** (`qa/validators/build_validator.py`):
+- Reads lint/build/test commands from `project_index.json` (written by `framework_analyzer.py`)
+- Does NOT import from `command_registry` — those modules are security allowlists, not command detectors
+
+**Lint/test command detection** (`analysis/analyzers/framework_analyzer.py`):
+- Python: `ruff check .` / `flake8 .` / `mypy .` (config-file priority) + `pytest`
+- Node.js: `npm run lint` / `npx eslint .` / `npx tsc --noEmit` + `npm run test`
+- Go: `go vet ./...` + `go test ./...`
+- Rust: `cargo clippy -- -D warnings` + `cargo test`
+- Flutter: `flutter analyze` + `flutter test`
+
+### Custom Agent Plugins
+
+Add custom agents by creating `custom_agents/config.json` in the backend directory. Custom agents are auto-registered into the unified `AgentRegistry` at startup.
+
+```json
+{
+  "agents": {
+    "my_custom_agent": {
+      "prompt_file": "my_agent.md",
+      "description": "Custom agent for X",
+      "tools": ["Read", "Write", "Bash", "Grep"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "medium",
+      "use_claude_cli": false,
+      "script": null,
+      "extra_args": []
+    }
+  }
+}
+```
+
+Prompt files go in `custom_agents/prompts/`. Each agent is a self-contained module (n8n node pattern): clear inputs (prompt, spec, tools), clear outputs (files, status), well-defined boundaries.
+
+**Key files:**
+
+| File | Role |
+|------|------|
+| `core/agent_registry.py` | `_load_custom_agents()` — loads from config.json into unified registry |
+| `agents/tools_pkg/models.py` | `get_custom_agent_prompt()`, `list_custom_agents()` — public API |
+| `custom_agents/config.json` | Agent definitions |
+| `custom_agents/prompts/` | Agent prompt files (.md) |
 
 ### Design Tasks (Large Project Decomposition)
 

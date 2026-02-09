@@ -9,7 +9,7 @@ import json
 from typing import TYPE_CHECKING
 
 from .. import validator, writer
-from .models import MAX_RETRIES, PhaseResult
+from .models import MAX_RETRIES, PhaseResult, retry_backoff
 
 if TYPE_CHECKING:
     pass
@@ -100,6 +100,7 @@ Create:
             errors.append(
                 f"Attempt {attempt + 1}: Quick spec agent failed ({error_detail})"
             )
+            await retry_backoff(attempt, output, self.ui)
 
         return PhaseResult("quick_spec", False, [], errors, MAX_RETRIES)
 
@@ -154,6 +155,7 @@ Create:
                 errors.append(
                     f"Attempt {attempt + 1}: Agent did not create spec.md ({error_detail})"
                 )
+            await retry_backoff(attempt, output, self.ui)
 
         return PhaseResult("spec_writing", False, [], errors, MAX_RETRIES)
 
@@ -240,6 +242,7 @@ Output critique_report.json with:
                     )
             else:
                 errors.append(f"Attempt {attempt + 1}: Critique agent failed")
+            await retry_backoff(attempt, output, self.ui)
 
         validator.create_minimal_critique(
             self.spec_dir,

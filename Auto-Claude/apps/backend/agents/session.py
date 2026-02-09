@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeSDKClient
+from core.session_logger import agent_session_logger
 from debug import debug, debug_detailed, debug_error, debug_section, debug_success
 from insight_extractor import extract_session_insights
 from linear_updater import (
@@ -372,6 +373,36 @@ async def run_agent_session(
 
     # Get task logger for this spec
     task_logger = get_task_logger(spec_dir)
+
+    # Per-agent session logging (OpenClaw P2.3)
+    agent_type = "coder" if phase == LogPhase.CODING else "planner"
+
+    # Cache trace for cost optimization diagnostics (OpenClaw P3.5)
+    from core.cache_trace import CacheTrace
+    cache_trace = CacheTrace(spec_dir, session_id=f"{agent_type}-{phase.value}")
+
+    async with agent_session_logger(
+        spec_dir, agent_type=agent_type, phase=phase.value,
+    ) as session_record:
+        result = await _run_agent_session_inner(
+            client, message, spec_dir, verbose, phase,
+            task_logger, session_record,
+        )
+        # Emit cache summary at session end
+        cache_trace.emit_summary_event()
+        return result
+
+
+async def _run_agent_session_inner(
+    client: ClaudeSDKClient,
+    message: str,
+    spec_dir: Path,
+    verbose: bool,
+    phase: LogPhase,
+    task_logger,
+    session_record,
+) -> tuple[str, str, dict]:
+    """Inner implementation of run_agent_session (extracted for session logging)."""
     current_tool = None
     message_count = 0
     tool_count = 0
@@ -554,6 +585,10 @@ async def run_agent_session(
                 tool_count=tool_count,
                 response_length=len(response_text),
             )
+            session_record.record_result(
+                status="complete", tool_count=tool_count,
+                message_count=message_count, response_length=len(response_text),
+            )
             return "complete", response_text, {}
 
         debug_success(
@@ -562,6 +597,10 @@ async def run_agent_session(
             message_count=message_count,
             tool_count=tool_count,
             response_length=len(response_text),
+        )
+        session_record.record_result(
+            status="continue", tool_count=tool_count,
+            message_count=message_count, response_length=len(response_text),
         )
         return "continue", response_text, {}
 
@@ -595,4 +634,9 @@ async def run_agent_session(
             "message": str(e),
             "exception_type": type(e).__name__,
         }
+        session_record.record_result(
+            status="error", tool_count=tool_count,
+            message_count=message_count, error_type=error_type,
+            error_message=str(e),
+        )
         return "error", str(e), error_info

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from task_logger import LogEntryType, LogPhase
 
 from .. import requirements, validator
-from .models import MAX_RETRIES, PhaseResult
+from .models import MAX_RETRIES, PhaseResult, retry_backoff
 
 if TYPE_CHECKING:
     pass
@@ -246,6 +246,7 @@ Output your findings to research.json.
             errors.append(
                 f"Attempt {attempt + 1}: Research agent failed ({error_detail})"
             )
+            await retry_backoff(attempt, output, self.ui)
 
         validator.create_minimal_research(
             self.spec_dir,

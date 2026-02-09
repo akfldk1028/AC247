@@ -45,11 +45,80 @@ from .report import (
     is_no_test_project,
     record_iteration,
 )
-from .reviewer import run_qa_agent_session
+from .reviewer import review_with_results, run_qa_agent_session
+
+# Lazy imports for Graphiti memory (avoid startup cost when disabled)
+_is_graphiti_enabled = None
+_get_graphiti_memory = None
+
+# Lazy import for project index refresh
+_analyze_project = None
+
+# Lazy import for worktree sync
+_sync_spec_to_source = None
+
+
+def _sync_to_source(spec_dir: Path, source_spec_dir: Path | None) -> None:
+    """Sync spec files from worktree to main project (no-op if not in worktree)."""
+    if not source_spec_dir:
+        return
+    global _sync_spec_to_source
+    if _sync_spec_to_source is None:
+        from agents.utils import sync_spec_to_source as _ss
+        _sync_spec_to_source = _ss
+    try:
+        _sync_spec_to_source(spec_dir, source_spec_dir)
+    except Exception as e:
+        debug_warning("qa_loop", f"Failed to sync spec to source: {e}")
 
 # Configuration
 MAX_QA_ITERATIONS = 50
 MAX_CONSECUTIVE_ERRORS = 3  # Stop after 3 consecutive errors without progress
+
+
+async def _save_qa_outcome(
+    spec_dir: Path,
+    project_dir: Path,
+    success: bool,
+    qa_iteration: int,
+    issues: list[dict] | None = None,
+) -> None:
+    """Save QA outcome to Graphiti for cross-task learning (non-blocking)."""
+    try:
+        global _is_graphiti_enabled, _get_graphiti_memory
+        if _is_graphiti_enabled is None:
+            from graphiti_config import is_graphiti_enabled
+            _is_graphiti_enabled = is_graphiti_enabled
+        if not _is_graphiti_enabled():
+            return
+
+        if _get_graphiti_memory is None:
+            from memory.graphiti_helpers import get_graphiti_memory
+            _get_graphiti_memory = get_graphiti_memory
+
+        memory = await _get_graphiti_memory(spec_dir, project_dir)
+        if not memory:
+            return
+        try:
+            spec_desc = ""
+            spec_file = spec_dir / "spec.md"
+            if spec_file.exists():
+                spec_desc = spec_file.read_text(encoding="utf-8")[:500]
+            if success:
+                outcome = f"QA approved after {qa_iteration} iteration(s)"
+            else:
+                issue_titles = [i.get("title", "") for i in (issues or [])[:5]]
+                outcome = f"QA failed after {qa_iteration} iterations: {', '.join(issue_titles)}"
+            await memory.save_task_outcome(
+                task_id=spec_dir.name,
+                success=success,
+                outcome=outcome,
+                metadata={"spec_description": spec_desc, "iterations": qa_iteration},
+            )
+        finally:
+            await memory.close()
+    except Exception as e:
+        debug_warning("qa_loop", f"Failed to save QA outcome to Graphiti: {e}")
 
 
 # =============================================================================
@@ -62,6 +131,7 @@ async def run_qa_validation_loop(
     spec_dir: Path,
     model: str,
     verbose: bool = False,
+    source_spec_dir: Path | None = None,
 ) -> bool:
     """
     Run the full QA validation loop.
@@ -82,6 +152,11 @@ async def run_qa_validation_loop(
         spec_dir: Spec directory
         model: Claude model to use
         verbose: Whether to show detailed output
+        source_spec_dir: Original spec directory in main project (for worktree sync).
+                         When running in isolated workspace, events and plan updates
+                         are written to the worktree spec dir. This parameter enables
+                         syncing back to the main project so the daemon/UI can see
+                         QA progress in real-time.
 
     Returns:
         True if QA approved, False otherwise
@@ -124,6 +199,26 @@ async def run_qa_validation_loop(
         "QA_STARTED",
         {"iteration": 1, "maxIterations": MAX_QA_ITERATIONS},
     )
+
+    # Sync to main project so daemon/UI can see QA has started
+    _sync_to_source(spec_dir, source_spec_dir)
+
+    # Refresh project_index.json before QA starts — the coder may have created
+    # new directories (e.g. web/ for Flutter) that change project capabilities
+    try:
+        from prompts_pkg.project_context import should_refresh_project_index
+
+        if should_refresh_project_index(project_dir):
+            debug("qa_loop", "Refreshing project_index.json (dependency files changed)")
+            global _analyze_project
+            if _analyze_project is None:
+                from analysis.analyzers import analyze_project as _ap
+                _analyze_project = _ap
+            index_file = project_dir / ".auto-claude" / "project_index.json"
+            _analyze_project(project_dir, index_file)
+            debug_success("qa_loop", "project_index.json refreshed")
+    except Exception as e:
+        debug_warning("qa_loop", f"Failed to refresh project index: {e}")
 
     # Check if there's pending human feedback that needs to be processed
     fix_request_file = spec_dir / "QA_FIX_REQUEST.md"
@@ -214,10 +309,37 @@ async def run_qa_validation_loop(
             await linear_qa_started(spec_dir)
             print("Linear task moved to 'In Review'")
 
+    # Run automated validators before the QA review loop (first iteration only).
+    # Results are injected into the first reviewer session as structured evidence.
+    validator_results = None
+    try:
+        from prompts_pkg.project_context import detect_project_capabilities
+        import json as _json
+
+        _idx_file = project_dir / ".auto-claude" / "project_index.json"
+        if _idx_file.exists():
+            _idx = _json.loads(_idx_file.read_text(encoding="utf-8"))
+            _caps = detect_project_capabilities(_idx)
+            if _caps:
+                from .validator_orchestrator import run_validators
+                debug("qa_loop", "Running automated validators before QA review", capabilities=list(_caps.keys()))
+                print(f"[qa] Running automated validators (capabilities: {', '.join(k for k, v in _caps.items() if v)})")
+                validator_results = await run_validators(project_dir, spec_dir, _caps)
+                _passed = sum(1 for r in validator_results if r.passed)
+                print(f"[qa] Validators done: {_passed}/{len(validator_results)} passed")
+                debug_success("qa_loop", f"Validators complete: {_passed}/{len(validator_results)} passed")
+                # Sync screenshots/validator artifacts to main spec dir immediately
+                # (browser_validator saves to worktree spec_dir which is deleted after merge)
+                _sync_to_source(spec_dir, source_spec_dir)
+    except Exception as e:
+        debug_warning("qa_loop", f"Validator pre-run failed (non-blocking): {e}")
+        validator_results = None
+
     qa_iteration = get_qa_iteration_count(spec_dir)
     consecutive_errors = 0
     last_error_context = None  # Track error for self-correction feedback
     max_iterations_emitted = False
+    first_loop_iteration = True  # For validator injection on first pass
 
     while qa_iteration < MAX_QA_ITERATIONS:
         qa_iteration += 1
@@ -255,15 +377,31 @@ async def run_qa_validation_loop(
 
         async with client:
             debug("qa_loop", "Running QA reviewer agent session...")
-            status, response = await run_qa_agent_session(
-                client,
-                project_dir,  # Pass project_dir for capability-based tool injection
-                spec_dir,
-                qa_iteration,
-                MAX_QA_ITERATIONS,
-                verbose,
-                previous_error=last_error_context,  # Pass error context for self-correction
-            )
+            # First iteration with validator results → use review_with_results()
+            if validator_results is not None and first_loop_iteration:
+                debug("qa_loop", "Using review_with_results() with pre-computed validator evidence")
+                status, response = await review_with_results(
+                    client,
+                    project_dir,
+                    spec_dir,
+                    validator_results,
+                    qa_iteration,
+                    MAX_QA_ITERATIONS,
+                    verbose,
+                )
+                # Clear so subsequent iterations use standard path
+                validator_results = None
+            else:
+                status, response = await run_qa_agent_session(
+                    client,
+                    project_dir,  # Pass project_dir for capability-based tool injection
+                    spec_dir,
+                    qa_iteration,
+                    MAX_QA_ITERATIONS,
+                    verbose,
+                    previous_error=last_error_context,  # Pass error context for self-correction
+                )
+            first_loop_iteration = False
 
         iteration_duration = time_module.time() - iteration_start
         debug(
@@ -273,6 +411,9 @@ async def run_qa_validation_loop(
             duration_seconds=f"{iteration_duration:.1f}",
             response_length=len(response),
         )
+
+        # Sync after every reviewer session so daemon/UI sees real-time QA progress
+        _sync_to_source(spec_dir, source_spec_dir)
 
         if status == "approved":
             emit_phase(ExecutionPhase.COMPLETE, "QA validation passed")
@@ -319,6 +460,11 @@ async def run_qa_validation_loop(
                 await linear_qa_approved(spec_dir)
                 print("\nLinear: Task marked as QA approved, awaiting human review")
 
+            # Save approved outcome to Graphiti for cross-task learning
+            await _save_qa_outcome(spec_dir, project_dir, True, qa_iteration)
+
+            # Sync approved state to main project
+            _sync_to_source(spec_dir, source_spec_dir)
             return True
 
         elif status == "rejected":
@@ -404,6 +550,11 @@ async def run_qa_validation_loop(
                 )
                 max_iterations_emitted = True
 
+                # Save failed outcome to Graphiti for cross-task learning
+                await _save_qa_outcome(spec_dir, project_dir, False, qa_iteration, current_issues)
+
+                # Sync escalation state to main project
+                _sync_to_source(spec_dir, source_spec_dir)
                 return False
 
             # Record rejection in Linear
@@ -476,6 +627,8 @@ async def run_qa_validation_loop(
                 "QA_FIXING_COMPLETE",
                 {"iteration": qa_iteration},
             )
+            # Sync after fixer so daemon/UI sees the fix progress
+            _sync_to_source(spec_dir, source_spec_dir)
             print("\n✅ Fixes applied. Re-running QA validation...")
 
         elif status == "error":
@@ -534,6 +687,7 @@ async def run_qa_validation_loop(
                         success=False,
                         message=f"QA agent failed {MAX_CONSECUTIVE_ERRORS} consecutive times - unable to update implementation_plan.json",
                     )
+                _sync_to_source(spec_dir, source_spec_dir)
                 return False
 
             print("Retrying with error feedback...")
@@ -598,6 +752,12 @@ async def run_qa_validation_loop(
     if linear_task and linear_task.task_id:
         await linear_qa_max_iterations(spec_dir, qa_iteration)
         print("\nLinear: Task marked as needing human intervention")
+
+    # Save failed outcome to Graphiti for cross-task learning
+    await _save_qa_outcome(spec_dir, project_dir, False, qa_iteration)
+
+    # Final sync so main project has the latest QA state
+    _sync_to_source(spec_dir, source_spec_dir)
 
     print("\nManual intervention required.")
     return False

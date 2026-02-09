@@ -155,6 +155,23 @@ class FrameworkAnalyzer(BaseAnalyzer):
             if "[build-system]" in pyproject:
                 self.analysis["build_command"] = "python -m build"
 
+        # Lint command — config-file detection for ruff > flake8 > mypy
+        # Read pyproject.toml once for all checks below
+        _pyproject = self._read_file("pyproject.toml") if self._exists("pyproject.toml") else ""
+
+        if self._exists("ruff.toml") or "[tool.ruff]" in _pyproject:
+            self.analysis["lint_command"] = "ruff check ."
+        elif self._exists(".flake8") or self._exists("setup.cfg"):
+            self.analysis["lint_command"] = "flake8 ."
+        elif self._exists("mypy.ini") or "[tool.mypy]" in _pyproject:
+            self.analysis["lint_command"] = "mypy ."
+
+        # Test command
+        if self._exists("pytest.ini") or self._exists("conftest.py") or "[tool.pytest" in _pyproject:
+            self.analysis["test_command"] = "pytest"
+        elif self._exists("tests") or self._exists("test"):
+            self.analysis["test_command"] = "pytest"
+
     def _detect_node_framework(self, pkg: dict) -> None:
         """Detect Node.js/TypeScript framework."""
         from .port_detector import PortDetector
@@ -266,6 +283,18 @@ class FrameworkAnalyzer(BaseAnalyzer):
         if "build" in scripts:
             self.analysis["build_command"] = f"{pm} run build"
 
+        # Lint command — prefer scripts, then check devDependencies
+        if "lint" in scripts:
+            self.analysis["lint_command"] = f"{pm} run lint"
+        elif "eslint" in deps_lower:
+            self.analysis["lint_command"] = "npx eslint ."
+        elif "typescript" in deps_lower:
+            self.analysis["lint_command"] = "npx tsc --noEmit"
+
+        # Test command
+        if "test" in scripts:
+            self.analysis["test_command"] = f"{pm} run test"
+
     def _detect_go_framework(self, content: str) -> None:
         """Detect Go framework."""
         from .port_detector import PortDetector
@@ -288,6 +317,8 @@ class FrameworkAnalyzer(BaseAnalyzer):
 
         # Build command (Go always supports build)
         self.analysis["build_command"] = "go build ./..."
+        self.analysis["lint_command"] = "go vet ./..."
+        self.analysis["test_command"] = "go test ./..."
 
     def _detect_rust_framework(self, content: str) -> None:
         """Detect Rust framework."""
@@ -310,6 +341,8 @@ class FrameworkAnalyzer(BaseAnalyzer):
 
         # Build command (Rust always supports build)
         self.analysis["build_command"] = "cargo build"
+        self.analysis["lint_command"] = "cargo clippy -- -D warnings"
+        self.analysis["test_command"] = "cargo test"
 
     def _detect_dart_framework(self, content: str) -> None:
         """Detect Dart/Flutter framework from pubspec.yaml content."""
@@ -318,6 +351,12 @@ class FrameworkAnalyzer(BaseAnalyzer):
         # Flutter detection
         if "flutter:" in content_lower and "sdk: flutter" in content_lower:
             self.analysis["framework"] = "Flutter"
+            # Always set default port and web setup command —
+            # Flutter can add web support at any time via `flutter create --platforms web .`
+            self.analysis["default_port"] = 8080
+            self.analysis["web_setup_command"] = "flutter create --platforms web ."
+            self.analysis["web_dev_command"] = "flutter run -d chrome --web-port=8080"
+
             # Determine type and build command based on platform targets
             if self._exists("web") or self._exists("lib/web"):
                 self.analysis["type"] = "frontend"
@@ -326,15 +365,15 @@ class FrameworkAnalyzer(BaseAnalyzer):
             elif self._exists("android"):
                 self.analysis["type"] = "mobile"
                 self.analysis["build_command"] = "flutter build apk"
-                self.analysis["dev_command"] = "flutter run"
+                self.analysis["dev_command"] = "flutter run -d chrome --web-port=8080"
             elif self._exists("ios"):
                 self.analysis["type"] = "mobile"
                 self.analysis["build_command"] = "flutter build ios --no-codesign"
-                self.analysis["dev_command"] = "flutter run"
+                self.analysis["dev_command"] = "flutter run -d chrome --web-port=8080"
             else:
                 self.analysis["type"] = "mobile"  # Default for Flutter
                 self.analysis["build_command"] = "flutter build apk"
-                self.analysis["dev_command"] = "flutter run"
+                self.analysis["dev_command"] = "flutter run -d chrome --web-port=8080"
         else:
             # Pure Dart (backend/CLI)
             dart_backend_frameworks = {
@@ -369,9 +408,15 @@ class FrameworkAnalyzer(BaseAnalyzer):
                 self.analysis["state_management"] = name
                 break
 
+        # Lint command (Flutter/Dart static analysis)
+        if self.analysis.get("framework") == "Flutter":
+            self.analysis["lint_command"] = "flutter analyze --no-fatal-infos --no-fatal-warnings"
+
         # Testing detection
         if "flutter_test" in content_lower:
             self.analysis["testing"] = "flutter_test"
+            if not self.analysis.get("test_command"):
+                self.analysis["test_command"] = "flutter test"
         elif "test:" in content_lower:
             self.analysis["testing"] = "dart_test"
 

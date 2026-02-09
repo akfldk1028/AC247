@@ -26,6 +26,7 @@ interface DaemonStatus {
   queued_tasks: Array<{ spec_id: string; priority: number }>;
   stats: { running: number; queued: number; completed: number };
   timestamp: string;
+  ws_port?: number;
 }
 
 interface ProjectWatcher {
@@ -40,6 +41,9 @@ interface ProjectWatcher {
   resendTimer: ReturnType<typeof setInterval> | null;
   /** All spec IDs ever seen (running + queued) — used to detect new specs */
   allKnownSpecIds: Set<string>;
+  /** WebSocket connection to daemon (optional, for real-time updates) */
+  ws: WebSocket | null;
+  wsPort: number | null;
 }
 
 const daemonManagedTasks = new Map<string, string>();
@@ -106,6 +110,8 @@ export class DaemonStatusWatcher {
       readyTimer: null,
       resendTimer: null,
       allKnownSpecIds: new Set(),
+      ws: null,
+      wsPort: null,
     };
 
     // Delay initial processing to let renderer mount first
@@ -114,15 +120,18 @@ export class DaemonStatusWatcher {
       this.processFile(statusFilePath, pw);
     }, 5000);
 
+    // Reduced stabilization threshold (100ms vs 500ms) since the daemon now
+    // uses event-driven writes with atomic temp→rename. The file is complete
+    // once detected. Poll interval lowered to match.
     pw.watcher = chokidar.watch(statusFilePath, {
       persistent: true,
       ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 200 },
+      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
     });
     pw.watcher.on('change', () => this.processFile(statusFilePath, pw));
     pw.watcher.on('add', () => this.processFile(statusFilePath, pw));
 
-    // Periodically re-send status for running tasks (every 5s).
+    // Periodically re-send status for running tasks (every 3s).
     // This ensures the renderer stays in sync even after forceRefresh
     // clears the store and reloads from implementation_plan.json (which
     // has stale status). The task store deduplicates identical updates.
@@ -130,7 +139,7 @@ export class DaemonStatusWatcher {
       if (pw.rendererReady && pw.previousRunningIds.size > 0) {
         this.processFile(statusFilePath, pw);
       }
-    }, 5000);
+    }, 3000);
 
     this.watchers.set(pid, pw);
   }
@@ -171,6 +180,13 @@ export class DaemonStatusWatcher {
       daemonManagedTasks.delete(specId);
     }
 
+    // Close WebSocket connection
+    if (pw.ws) {
+      try { pw.ws.close(); } catch { /* ignore */ }
+      pw.ws = null;
+      pw.wsPort = null;
+    }
+
     pw.watchedTasks.clear();
     pw.previousRunningIds.clear();
     pw.allKnownSpecIds.clear();
@@ -199,6 +215,11 @@ export class DaemonStatusWatcher {
         }
       }
       return;
+    }
+
+    // Auto-discover and connect to WebSocket server (if available)
+    if (status.ws_port && status.ws_port !== pw.wsPort && !pw.ws) {
+      this.connectWebSocket(pw, status.ws_port);
     }
 
     // Collect ALL spec IDs from both running and queued tasks
@@ -328,6 +349,44 @@ export class DaemonStatusWatcher {
       specId: '_daemon_refresh',
       specDir: '',
     });
+  }
+
+  /**
+   * Connect to the daemon's WebSocket server for sub-second status updates.
+   * WS messages trigger an immediate processFile re-read (file is authoritative).
+   * Falls back to file polling if WebSocket is unavailable.
+   */
+  private connectWebSocket(pw: ProjectWatcher, port: number): void {
+    // Avoid duplicate connections
+    if (pw.ws) return;
+
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+      pw.wsPort = port;
+
+      ws.onopen = () => {
+        console.log(`[DaemonStatusWatcher] WebSocket connected to ws://127.0.0.1:${port}`);
+        pw.ws = ws;
+      };
+
+      ws.onmessage = () => {
+        // WS = push notification that status changed.
+        // Re-read the authoritative file (daemon writes before broadcast).
+        this.processFile(pw.statusFilePath, pw);
+      };
+
+      ws.onerror = () => {
+        // Close event follows; cleanup happens there
+      };
+
+      ws.onclose = () => {
+        console.log(`[DaemonStatusWatcher] WebSocket disconnected from port ${port}`);
+        pw.ws = null;
+        pw.wsPort = null;
+      };
+    } catch {
+      // WebSocket not available in this runtime — file polling continues
+    }
   }
 
   private sendStatusChange(specId: string, status: string, projectId?: string): void {

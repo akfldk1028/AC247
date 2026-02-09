@@ -68,14 +68,40 @@ Create a mental checklist. You must address EVERY issue.
 
 ---
 
-## PHASE 2: START DEVELOPMENT ENVIRONMENT
+## PHASE 2: INSTALL DEPENDENCIES AND START DEVELOPMENT ENVIRONMENT
+
+**CRITICAL**: You MUST install dependencies BEFORE running any build or dev server commands.
+This is especially important in worktree/isolated workspace environments.
+
+### Install Dependencies First (MANDATORY)
+
+Based on the framework:
+- **Flutter**: `flutter pub get`
+- **Node.js/React/Vue**: `npm install` or `yarn install`
+- **Python**: `pip install -r requirements.txt`
+- **Rust/Tauri**: `cargo fetch`
+
+### Start Dev Server
+
+Use the **DEV SERVER CONFIGURATION** section (injected above) for the correct `dev_command` and `port`.
 
 ```bash
-# Start services if needed
-chmod +x init.sh && ./init.sh
+# Start services if needed (check init.sh or DEV SERVER CONFIGURATION)
+chmod +x init.sh 2>/dev/null && ./init.sh 2>/dev/null || true
 
-# Verify running
-lsof -iTCP -sTCP:LISTEN | grep -E "node|python|next|vite"
+# Or use the dev_command from DEV SERVER CONFIGURATION
+```
+
+**Verify server is running (cross-platform):**
+
+Windows (PowerShell):
+```powershell
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -eq PORT }
+```
+
+Linux/macOS (Bash):
+```bash
+lsof -iTCP -sTCP:LISTEN | grep -E "node|python|next|vite|flutter"
 ```
 
 ---
@@ -391,6 +417,28 @@ The QA Agent will now re-run validation.
 ---
 
 ## COMMON FIX PATTERNS
+
+### Build Errors (ALWAYS Use Context7)
+
+When fixing build errors, ALWAYS consult official documentation:
+
+1. **Identify** the framework/library causing the error
+2. **Look up** documentation via Context7:
+   ```
+   Tool: mcp__context7__resolve-library-id
+   Input: { "libraryName": "[framework/library name]" }
+
+   Tool: mcp__context7__get-library-docs
+   Input: { "context7CompatibleLibraryID": "[id from step above]", "topic": "[error message keyword]" }
+   ```
+3. **Apply** the fix based on official documentation, not guesswork
+4. **Re-run** the build command to verify the fix:
+   ```bash
+   # Get build command from project_index.json
+   cat project_index.json | jq '.services[] | select(.build_command != null) | .build_command'
+   # Execute it
+   ```
+5. **Repeat** if build still fails — consult docs again for the new error
 
 ### Missing Migration
 

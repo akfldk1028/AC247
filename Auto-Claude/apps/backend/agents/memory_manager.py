@@ -156,6 +156,9 @@ async def get_graphiti_context(
         # Also get recent session history
         session_history = await memory.get_session_history(limit=3)
 
+        # Get similar past task outcomes for cross-task learning
+        similar_outcomes = await memory.get_similar_task_outcomes(query, limit=3)
+
         if is_debug_enabled():
             debug(
                 "memory",
@@ -164,9 +167,10 @@ async def get_graphiti_context(
                 patterns_found=len(patterns) if patterns else 0,
                 gotchas_found=len(gotchas) if gotchas else 0,
                 session_history_found=len(session_history) if session_history else 0,
+                similar_outcomes_found=len(similar_outcomes) if similar_outcomes else 0,
             )
 
-        if not context_items and not session_history and not patterns and not gotchas:
+        if not context_items and not session_history and not patterns and not gotchas and not similar_outcomes:
             if is_debug_enabled():
                 debug("memory", "No relevant context found in Graphiti")
             return None
@@ -220,6 +224,16 @@ async def get_graphiti_context(
                     for rec in recommendations[:3]:  # Limit to 3
                         sections.append(f"- {rec}")
                     sections.append("")
+
+        if similar_outcomes:
+            sections.append("### Similar Past Tasks\n")
+            sections.append("_Outcomes from similar tasks:_\n")
+            for outcome in similar_outcomes[:3]:
+                task_id = outcome.get("task_id", "unknown")
+                success = outcome.get("success", False)
+                result_text = outcome.get("outcome", "")[:200]
+                status_icon = "PASS" if success else "FAIL"
+                sections.append(f"- **[{status_icon}] {task_id}**: {result_text}\n")
 
         if is_debug_enabled():
             debug_success(

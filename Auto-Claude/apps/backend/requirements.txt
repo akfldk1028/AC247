@@ -36,3 +36,11 @@ sentry-sdk>=2.0.0
 
 # File system watching for Task Daemon (24/7 background service)
 watchdog>=4.0.0
+
+# WebSocket server for real-time daemon↔UI communication (OpenClaw pattern)
+# Replaces file polling with sub-second event delivery
+websockets>=12.0
+
+# Browser automation for QA browser validator (headless Chromium)
+# Requires one-time: playwright install chromium
+playwright>=1.40.0

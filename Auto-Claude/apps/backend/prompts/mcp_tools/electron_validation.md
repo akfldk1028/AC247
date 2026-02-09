@@ -26,13 +26,28 @@ Tool: mcp__electron__get_electron_window_info
 
 Verify the app is running and get window information. If no app found, document that Electron validation was skipped.
 
-#### Step 2: Capture Screenshot
+#### Step 2: Capture Screenshot and SAVE (MANDATORY)
+
+```bash
+mkdir -p screenshots
+```
 
 ```
 Tool: mcp__electron__take_screenshot
 ```
 
 Take a screenshot to visually verify the current state of the application.
+**MANDATORY**: Save the screenshot to the `screenshots/` directory for audit trail.
+
+```bash
+# If the tool saves to a default path, copy it:
+cp screenshot.png screenshots/01-initial-load.png 2>/dev/null || true
+```
+
+**Screenshot naming convention:**
+- `screenshots/01-initial-load.png`
+- `screenshots/02-page-{name}.png` — for each window/page
+- `screenshots/03-after-{action}.png` — after interactions
 
 #### Step 3: Analyze Page Structure
 
@@ -80,7 +95,28 @@ Command: eval
 Args: {"code": "document.title"}
 ```
 
-#### Step 5: Check Console Logs
+#### Step 5: Multi-Page/Window Verification (MANDATORY for apps with multiple views)
+
+If the Electron app has multiple pages, tabs, or windows:
+
+1. **Discover views**: Check spec.md for expected pages/views, search code for route definitions
+2. **Navigate to each view**: Use click/keyboard to switch between pages
+3. **Screenshot each view**: Save as `screenshots/02-page-{name}.png`
+4. **Verify each view** against spec requirements
+5. **Document**: Page-by-page PASS/FAIL matrix
+
+```
+Tool: mcp__electron__send_command_to_electron
+Command: click_by_text
+Args: {"text": "Settings"}
+```
+
+```
+Tool: mcp__electron__take_screenshot
+```
+→ Save as `screenshots/02-page-settings.png`
+
+#### Step 6: Check Console Logs
 
 ```
 Tool: mcp__electron__read_electron_logs
@@ -97,9 +133,13 @@ ELECTRON VALIDATION:
   - Debug port accessible: YES/NO
   - Connected to correct window: YES/NO
 - UI Verification: PASS/FAIL
-  - Screenshots captured: [list]
+  - Screenshots saved to screenshots/: YES/NO
+  - Screenshots captured: [count] — files: [list filenames]
   - Visual elements correct: PASS/FAIL
   - Interactions working: PASS/FAIL
+- Multi-Page Verification: PASS/FAIL/N/A
+  - Pages verified: [N/N]
+  - Page results: [page-by-page PASS/FAIL]
 - Console Errors: [list or "None"]
 - Electron-Specific Features: PASS/FAIL
   - [Feature]: PASS/FAIL

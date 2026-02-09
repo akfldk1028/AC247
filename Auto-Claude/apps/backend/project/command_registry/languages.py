@@ -112,6 +112,9 @@ LANGUAGE_COMMANDS: dict[str, set[str]] = {
         "dotnet",
         "nuget",
         "msbuild",
+        # Unity engine commands
+        "Unity",
+        "UnityHub",
     },
     "c": {
         "gcc",

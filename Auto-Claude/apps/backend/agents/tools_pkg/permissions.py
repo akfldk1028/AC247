@@ -20,7 +20,7 @@ from .models import (
     ELECTRON_TOOLS,
     GRAPHITI_MCP_TOOLS,
     LINEAR_TOOLS,
-    PUPPETEER_TOOLS,
+    PLAYWRIGHT_TOOLS,
     get_agent_config,
     get_required_mcp_servers,
 )
@@ -78,6 +78,9 @@ def get_allowed_tools(
     # Add MCP tool names based on required servers (including custom servers)
     tools.extend(_get_mcp_tools_for_servers(required_servers, mcp_config))
 
+    # Apply tool_profile from registry as ceiling enforcement
+    tools = _apply_tool_profile(agent_type, tools)
+
     return tools
 
 
@@ -132,14 +135,49 @@ def _get_mcp_tools_for_servers(
             tools.extend(GRAPHITI_MCP_TOOLS)
         elif server == "electron":
             tools.extend(ELECTRON_TOOLS)
-        elif server == "puppeteer":
-            tools.extend(PUPPETEER_TOOLS)
+        elif server == "playwright":
+            tools.extend(PLAYWRIGHT_TOOLS)
         elif server in custom_server_tools:
             # Custom MCP server with explicit tool list
             tools.extend(custom_server_tools[server])
         # auto-claude tools are already added via config["auto_claude_tools"]
 
     return tools
+
+
+def _apply_tool_profile(agent_type: str, tools: list[str]) -> list[str]:
+    """Filter tools through agent's tool_profile (ceiling enforcement).
+
+    The tool_profile acts as a maximum envelope — an agent cannot have
+    more tools than its profile allows, even if its explicit tools list
+    is broader (e.g., from custom agent misconfiguration).
+
+    Args:
+        agent_type: Agent type identifier.
+        tools: Current tools list to filter.
+
+    Returns:
+        Filtered tools list respecting the profile ceiling.
+    """
+    try:
+        from core.agent_registry import AgentRegistry
+        from core.tool_policy import ToolPolicy, ToolProfile, get_profile_tools, is_tool_allowed
+
+        reg = AgentRegistry.instance()
+        defn = reg.get(agent_type)
+        if not defn or not defn.tool_profile:
+            return tools
+
+        profile_str = defn.tool_profile.lower()
+        if profile_str == "full":
+            return tools  # No filtering needed
+
+        profile = ToolProfile(profile_str)
+        profile_patterns = get_profile_tools(profile)
+        profile_policy = ToolPolicy(allow=profile_patterns, deny=[])
+        return [t for t in tools if is_tool_allowed(profile_policy, t)]
+    except (ValueError, ImportError):
+        return tools  # Fallback: no filtering on error
 
 
 def get_all_agent_types() -> list[str]:

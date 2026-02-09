@@ -40,7 +40,7 @@ from .models import (
     ELECTRON_TOOLS,
     GRAPHITI_MCP_TOOLS,
     LINEAR_TOOLS,
-    PUPPETEER_TOOLS,
+    PLAYWRIGHT_TOOLS,
     # Auto-Claude tool names
     TOOL_GET_BUILD_PROGRESS,
     TOOL_GET_SESSION_CONTEXT,
@@ -78,7 +78,7 @@ __all__ = [
     "LINEAR_TOOLS",
     "GRAPHITI_MCP_TOOLS",
     "ELECTRON_TOOLS",
-    "PUPPETEER_TOOLS",
+    "PLAYWRIGHT_TOOLS",
     # Auto-Claude tool name constants
     "TOOL_UPDATE_SUBTASK_STATUS",
     "TOOL_GET_BUILD_PROGRESS",

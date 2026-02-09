@@ -231,6 +231,14 @@ def handle_build_command(
         spec_dir=str(spec_dir),
     )
 
+    # Diagnostic: Print workspace info for daemon log tracing
+    print(f"\n[WORKSPACE] mode={workspace_mode}")
+    print(f"[WORKSPACE] project_dir={project_dir}")
+    print(f"[WORKSPACE] working_dir={working_dir}")
+    print(f"[WORKSPACE] spec_dir={spec_dir}")
+    print(f"[WORKSPACE] worktree_manager={'set' if worktree_manager else 'None'}")
+    print(f"[WORKSPACE] auto_merge={auto_merge}")
+
     try:
         debug("run.py", "Starting agent execution")
 
@@ -264,6 +272,7 @@ def handle_build_command(
                         spec_dir=spec_dir,
                         model=model,
                         verbose=verbose,
+                        source_spec_dir=source_spec_dir,
                     )
                 )
 
@@ -491,3 +500,63 @@ def _handle_build_interrupt(
         content.append(muted("Your build is in a separate workspace and is safe."))
     print(box(content, width=70, style="light"))
     print()
+
+
+def run_pipeline(
+    pipeline_id: str,
+    context: dict,
+) -> dict:
+    """Run a declarative pipeline by ID.
+
+    Alternative to handle_build_command() — uses the PipelineEngine
+    for declarative stage execution. Designed for daemon path or
+    programmatic invocation where interactive prompts are not needed.
+
+    NOTE: This does NOT include interactive features from
+    handle_build_command() (approval checks, workspace setup menus,
+    keyboard interrupt handling, console banners). For interactive
+    CLI use, call handle_build_command() instead.
+
+    Args:
+        pipeline_id: Pipeline to run ("default", "design", "qa_only")
+        context: Pipeline context dict with keys:
+            - project_dir (Path): Project root (REQUIRED)
+            - working_dir (Path): Working directory, may be worktree (REQUIRED)
+            - spec_dir (Path): Spec directory (REQUIRED)
+            - model (str): Claude model name (REQUIRED)
+            - skip_qa (bool): Skip QA validation
+            - auto_merge (bool): Auto-merge after QA
+            - auto_continue (bool): Non-interactive mode
+            - verbose (bool): Verbose output
+            - max_iterations (int|None): Max iterations
+            - source_spec_dir (Path|None): Original spec dir for syncing
+            - original_project_dir (Path|None): Original project dir
+            - worktree_manager: Worktree manager instance
+
+    Returns:
+        Final context dict with pipeline results
+
+    Raises:
+        KeyError: If pipeline_id is unknown
+        ValueError: If required context keys are missing
+    """
+    from core.pipeline import PipelineEngine
+    from core.pipelines import get_pipeline
+
+    # Validate required context keys
+    required = ["project_dir", "working_dir", "spec_dir", "model"]
+    missing = [k for k in required if k not in context]
+    if missing:
+        raise ValueError(
+            f"Pipeline context missing required keys: {missing}. "
+            f"Required: {required}"
+        )
+
+    # Ensure Path types
+    for key in ["project_dir", "working_dir", "spec_dir", "source_spec_dir"]:
+        if key in context and context[key] is not None and isinstance(context[key], str):
+            context[key] = Path(context[key])
+
+    pipeline = get_pipeline(pipeline_id)
+    engine = PipelineEngine(pipeline, context)
+    return asyncio.run(engine.run())

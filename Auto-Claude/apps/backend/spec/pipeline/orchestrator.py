@@ -264,8 +264,8 @@ class SpecOrchestrator:
         results = []
         phase_num = 0
 
-        def run_phase(name: str, phase_fn: Callable) -> phases.PhaseResult:
-            """Run a phase with proper numbering and display.
+        async def run_phase(name: str, phase_fn: Callable) -> phases.PhaseResult:
+            """Run a phase with proper numbering, display, and hook emission.
 
             Args:
                 name: The phase name
@@ -283,7 +283,31 @@ class SpecOrchestrator:
             task_logger.log(
                 f"Starting phase {phase_num}: {display_name}", LogEntryType.INFO
             )
-            return phase_fn()
+
+            # Fire phase:started hook (OpenClaw P3)
+            try:
+                from core.hooks import emit_hook, PHASE_STARTED, PHASE_COMPLETED
+
+                await emit_hook(PHASE_STARTED, {
+                    "phase": name, "phase_num": phase_num,
+                    "spec_dir": str(self.spec_dir),
+                })
+            except Exception:
+                pass
+
+            result = await phase_fn()
+
+            # Fire phase:completed hook
+            try:
+                await emit_hook(PHASE_COMPLETED, {
+                    "phase": name, "phase_num": phase_num,
+                    "success": result.success,
+                    "spec_dir": str(self.spec_dir),
+                })
+            except Exception:
+                pass
+
+            return result
 
         # === PHASE 1: DISCOVERY ===
         result = await run_phase("discovery", phase_executor.phase_discovery)

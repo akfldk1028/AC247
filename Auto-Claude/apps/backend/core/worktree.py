@@ -350,6 +350,26 @@ class WorktreeManager:
         if not worktree_path.exists():
             return None
 
+        # CRITICAL: Verify this is actually a git worktree, not just a stale directory.
+        # A real worktree has a .git FILE (not directory) that points to
+        # the main repo's .git/worktrees/<name>/ entry.
+        # Without this check, git commands in the directory walk up to the parent
+        # repo and return its branch (e.g., "master"), making us think the worktree
+        # is valid when it's just a leftover directory.
+        git_marker = worktree_path / ".git"
+        if not git_marker.exists():
+            print(f"Warning: Directory exists but no .git marker: {worktree_path.name}")
+            return None
+        if git_marker.is_dir():
+            # .git is a directory = standalone repo (agent ran git init), not a worktree
+            print(f"Warning: .git is a directory (not worktree file): {worktree_path.name}")
+            return None
+
+        # Also verify the worktree is registered with git
+        if not self._worktree_is_registered(worktree_path):
+            print(f"Warning: Directory has .git file but not registered as worktree: {worktree_path.name}")
+            return None
+
         # Verify the branch exists in the worktree
         result = self._run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
         if result.returncode != 0:
@@ -668,12 +688,31 @@ class WorktreeManager:
         # Step 4: Handle stale worktree directory (exists but not registered with git)
         if worktree_path.exists() and not self._worktree_is_registered(worktree_path):
             print(f"Removing stale worktree directory: {worktree_path.name}")
-            shutil.rmtree(worktree_path, ignore_errors=True)
+            # On Windows, locked files (.dart_tool, build caches) can block rmtree.
+            # Retry with increasing delays to handle transient file locks.
+            for attempt in range(3):
+                shutil.rmtree(worktree_path, ignore_errors=True)
+                if not worktree_path.exists():
+                    break
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                    print(f"  Retry {attempt + 1}: stale directory still exists...")
             if worktree_path.exists():
-                raise WorktreeError(
-                    f"Failed to remove stale worktree directory: {worktree_path}\n"
-                    f"This may be due to permission issues or file locks."
-                )
+                # Last resort: if a .git directory exists (from agent running git init),
+                # remove just that so git worktree add can recreate the .git file
+                stale_git = worktree_path / ".git"
+                if stale_git.is_dir():
+                    print(f"  Removing stale .git directory to allow worktree creation...")
+                    shutil.rmtree(stale_git, ignore_errors=True)
+                # If we can't fully clean, still try — git worktree add might succeed
+                # if .git file can be created (even with leftover files like .dart_tool)
+                if (worktree_path / ".git").exists():
+                    raise WorktreeError(
+                        f"Failed to remove stale worktree directory: {worktree_path}\n"
+                        f"This may be due to permission issues or file locks."
+                    )
+                else:
+                    print(f"  Stale directory partially cleaned. Proceeding with worktree creation...")
 
         # Step 5: Check if branch already exists
         branch_exists = self._branch_exists(branch_name)
@@ -716,6 +755,16 @@ class WorktreeManager:
         if result.returncode != 0:
             raise WorktreeError(
                 f"Failed to create worktree for {spec_name}: {result.stderr}"
+            )
+
+        # Post-creation verification: ensure .git file was created
+        # This catches silent failures where git returns 0 but doesn't create the worktree
+        git_marker = worktree_path / ".git"
+        if not git_marker.exists() or git_marker.is_dir():
+            raise WorktreeError(
+                f"Worktree created (git returned 0) but .git file is missing at {worktree_path}.\n"
+                f"This may indicate a git bug with the path or encoding.\n"
+                f".git exists: {git_marker.exists()}, is_dir: {git_marker.is_dir() if git_marker.exists() else 'N/A'}"
             )
 
         print(f"Created worktree: {worktree_path.name} on branch {branch_name}")
@@ -784,7 +833,7 @@ class WorktreeManager:
             no_commit: If True, merge changes but don't commit (stage only for review)
 
         Returns:
-            True if merge succeeded
+            True if merge succeeded and code was transferred
         """
         info = self.get_worktree_info(spec_name)
         if not info:
@@ -797,6 +846,47 @@ class WorktreeManager:
             )
         else:
             print(f"Merging {info.branch} into {self.base_branch}...")
+
+        # Pre-merge diagnostics: count commits on branch vs base to detect empty merges
+        branch_ahead = self._run_git(
+            ["rev-list", "--count", f"{self.base_branch}..{info.branch}"]
+        )
+        ahead_count = 0
+        if branch_ahead.returncode == 0:
+            ahead_count = int(branch_ahead.stdout.strip() or "0")
+        print(f"  Branch {info.branch} is {ahead_count} commit(s) ahead of {self.base_branch}")
+
+        if ahead_count == 0 and not no_commit:
+            # Branch has no new commits — merge would be empty
+            print(f"  WARNING: Branch has 0 commits ahead. Merge would be empty.")
+            print(f"  This likely means the code was committed on the wrong branch.")
+            # Check if worktree has uncommitted changes that should have been committed
+            wt_path = self.get_worktree_path(spec_name)
+            if wt_path.exists():
+                diff_result = self._run_git(["status", "--short"], cwd=wt_path)
+                if diff_result.returncode == 0 and diff_result.stdout.strip():
+                    uncommitted_count = len(diff_result.stdout.strip().split("\n"))
+                    print(f"  Found {uncommitted_count} uncommitted file(s) in worktree!")
+                    print(f"  Attempting to commit them before merge...")
+                    # Auto-commit uncommitted changes
+                    self._run_git(["add", "."], cwd=wt_path)
+                    commit_result = self._run_git(
+                        ["commit", "-m", f"auto-claude: Auto-commit remaining changes for {spec_name}"],
+                        cwd=wt_path,
+                    )
+                    if commit_result.returncode == 0:
+                        print(f"  Auto-committed remaining changes.")
+                        # Recount
+                        branch_ahead = self._run_git(
+                            ["rev-list", "--count", f"{self.base_branch}..{info.branch}"]
+                        )
+                        if branch_ahead.returncode == 0:
+                            ahead_count = int(branch_ahead.stdout.strip() or "0")
+                            print(f"  Branch now {ahead_count} commit(s) ahead")
+
+        # Capture pre-merge HEAD for validation
+        pre_merge_head = self._run_git(["rev-parse", "HEAD"])
+        pre_merge_sha = pre_merge_head.stdout.strip() if pre_merge_head.returncode == 0 else ""
 
         # Switch to base branch in main project, but skip if already on it
         # This avoids triggering git hooks unnecessarily
@@ -820,42 +910,59 @@ class WorktreeManager:
                     print(f"Error: Could not checkout base branch: {stderr_msg}")
                     return False
 
+        # Re-read pre-merge HEAD after checkout (might have changed)
+        pre_merge_head = self._run_git(["rev-parse", "HEAD"])
+        pre_merge_sha = pre_merge_head.stdout.strip() if pre_merge_head.returncode == 0 else ""
+        print(f"  Pre-merge HEAD: {pre_merge_sha[:12]}")
+
         # Merge the spec branch
-        merge_args = ["merge", "--no-ff", info.branch]
+        # Use --no-verify to bypass pre-merge/commit-msg hooks (per git-merge docs)
+        # Auto-Claude manages its own git operations; user hooks can interfere
+        merge_args = ["merge", "--no-ff", "--no-verify", info.branch]
         if no_commit:
             # --no-commit stages the merge but doesn't create the commit
             merge_args.append("--no-commit")
         else:
             merge_args.extend(["-m", f"auto-claude: Merge {info.branch}"])
 
-        result = self._run_git(merge_args)
+        # Use 300s timeout for merge (large projects can take time on Windows)
+        result = self._run_git(merge_args, timeout=300)
 
         if result.returncode != 0:
             # Check if it's "already up to date" - not an error
             output = (result.stdout + result.stderr).lower()
             if "already up to date" in output or "already up-to-date" in output:
-                print(f"Branch {info.branch} is already up to date.")
+                print(f"  Branch {info.branch} is already up to date (no new commits to merge).")
+                if ahead_count > 0:
+                    # Branch had commits but merge says up-to-date — the branch was
+                    # already merged (e.g., agent did git merge from worktree). Not an error.
+                    print(f"  Note: Branch had {ahead_count} commits but they were already merged.")
                 if no_commit:
-                    print("No changes to stage.")
+                    print("  No changes to stage.")
                 if delete_after:
                     self.remove_worktree(spec_name, delete_branch=True)
                 return True
             # Check for actual conflicts
             if "conflict" in output:
-                print("Merge conflict! Aborting merge...")
+                print(f"Merge conflict! Aborting merge...")
+                print(f"  stdout: {result.stdout[:200]}")
+                print(f"  stderr: {result.stderr[:200]}")
                 self._run_git(["merge", "--abort"])
                 return False
-            # Other error - show details
-            stderr_msg = (
-                result.stderr[:200]
-                if result.stderr
-                else result.stdout[:200]
-                if result.stdout
-                else "<no output>"
-            )
-            print(f"Merge failed: {stderr_msg}")
+            # Other error - show full details for daemon log diagnostics
+            print(f"Merge failed (returncode={result.returncode}):")
+            print(f"  stdout: {result.stdout[:300]}")
+            print(f"  stderr: {result.stderr[:300]}")
             self._run_git(["merge", "--abort"])
             return False
+
+        # Post-merge validation: verify HEAD actually changed
+        post_merge_head = self._run_git(["rev-parse", "HEAD"])
+        post_merge_sha = post_merge_head.stdout.strip() if post_merge_head.returncode == 0 else ""
+        print(f"  Post-merge HEAD: {post_merge_sha[:12]}")
+
+        if pre_merge_sha == post_merge_sha and not no_commit:
+            print(f"  WARNING: HEAD did not change after merge. Merge may have been empty.")
 
         if no_commit:
             # Unstage any files that are gitignored in the main branch
@@ -868,6 +975,12 @@ class WorktreeManager:
             print("  git commit -m 'your commit message'")
         else:
             print(f"Successfully merged {info.branch}")
+            # Log merge stats for daemon diagnostics
+            merge_stats = self._run_git(
+                ["diff", "--shortstat", f"{pre_merge_sha}..{post_merge_sha}"]
+            )
+            if merge_stats.returncode == 0 and merge_stats.stdout.strip():
+                print(f"  Merge stats: {merge_stats.stdout.strip()}")
 
         if delete_after:
             self.remove_worktree(spec_name, delete_branch=True)

@@ -468,6 +468,30 @@ Example:
 
         parent_spec_id = spec_dir.name
 
+        # Idempotency guard: prevent duplicate calls in same session
+        # If parent is already marked "complete" with childSpecs, reject
+        parent_plan_file = spec_dir / "implementation_plan.json"
+        if parent_plan_file.exists():
+            try:
+                with open(parent_plan_file, encoding="utf-8") as f:
+                    parent_plan = json.load(f)
+                if parent_plan.get("status") == "complete" or parent_plan.get("childSpecs"):
+                    existing = parent_plan.get("childSpecs", [])
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"Child specs already created for '{parent_spec_id}' "
+                                    f"({len(existing)} specs). Cannot create duplicates. "
+                                    "Task is already decomposed."
+                                ),
+                            }
+                        ]
+                    }
+            except (json.JSONDecodeError, OSError):
+                pass
+
         # Depth guard: limit nesting to MAX_CHILD_DEPTH (default 2)
         current_depth = _calculate_task_depth(spec_dir)
         child_depth = current_depth + 1

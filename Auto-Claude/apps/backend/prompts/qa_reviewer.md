@@ -57,14 +57,50 @@ echo "In Progress: $(grep -c '"status": "in_progress"' implementation_plan.json)
 
 ---
 
-## PHASE 2: START DEVELOPMENT ENVIRONMENT
+## PHASE 2: INSTALL DEPENDENCIES AND START DEVELOPMENT ENVIRONMENT
+
+**CRITICAL**: You MUST install dependencies BEFORE running any build or dev server commands.
+This is especially important in worktree/isolated workspace environments where dependencies
+may not be pre-installed.
+
+### 2.1: Install Dependencies (MANDATORY)
+
+Check `project_index.json` for the framework and run the appropriate dependency command:
 
 ```bash
-# Start all services
-chmod +x init.sh && ./init.sh
+# Get package manager from project_index.json
+cat project_index.json | jq '.services[].package_manager'
+```
 
-# Verify services are running
-lsof -iTCP -sTCP:LISTEN | grep -E "node|python|next|vite"
+Based on the framework:
+- **Flutter**: `flutter pub get`
+- **Node.js/React/Vue/Next.js**: `npm install` or `yarn install`
+- **Python**: `pip install -r requirements.txt`
+- **Rust/Tauri**: `cargo fetch`
+
+**Do NOT skip this step.** Without dependencies, builds and dev servers will fail or serve stale code.
+
+### 2.2: Start Dev Server
+
+Use the **DEV SERVER CONFIGURATION** section (injected above) for the correct `dev_command` and `port`.
+
+```bash
+# Start services if needed (check init.sh or DEV SERVER CONFIGURATION)
+chmod +x init.sh 2>/dev/null && ./init.sh 2>/dev/null || true
+
+# Or use the dev_command from DEV SERVER CONFIGURATION
+```
+
+**Verify services are running (cross-platform):**
+
+Windows (PowerShell):
+```powershell
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -eq PORT }
+```
+
+Linux/macOS (Bash):
+```bash
+lsof -iTCP -sTCP:LISTEN | grep -E "node|python|next|vite|flutter"
 ```
 
 Wait for all services to be healthy before proceeding.
@@ -174,41 +210,129 @@ E2E TESTS:
 
 ---
 
-## PHASE 4: BROWSER VERIFICATION (If Frontend)
+## PHASE 4: BROWSER VERIFICATION (MANDATORY for ANY project with a web UI)
 
-For each page/component in the QA Acceptance Criteria:
+### Pre-Validation Already Complete
 
-### 4.1: Navigate and Screenshot
+The **BrowserValidator** (`qa/validators/browser_validator.py`) has already run before you start.
+It auto-started the dev server, launched headless Chromium via Python `playwright`, navigated,
+took a screenshot (`screenshots/01-initial-load.png`), captured the a11y tree, and collected
+console errors. Check the validator results injected above — they contain:
+- Screenshot path and status
+- Accessibility tree summary (node count, role distribution)
+- Console errors/warnings list
+
+**If the auto-validator succeeded**, you have baseline evidence. Focus on:
+- **Interactive testing** (click buttons, fill forms, verify state changes)
+- **Multi-page verification** (navigate to all routes)
+- **Spec compliance** (does the UI match acceptance criteria?)
+
+**If the auto-validator was skipped** (no playwright, no dev server config), perform the full manual flow below.
+
+---
+
+**CRITICAL**: If the project has a web frontend (React, Vue, Flutter web, Expo web, Tauri, etc.),
+you MUST use Playwright MCP tools for browser verification. This is NOT optional.
+
+**`curl`, `wget`, or raw HTTP status checks do NOT count as browser verification.**
+You MUST call the actual `mcp__playwright__browser_*` tools.
+
+### 4.0: Start Dev Server (MANDATORY — skip if auto-validator already started it)
+
+Use the **DEV SERVER CONFIGURATION** section (injected above) for the correct `dev_command` and `port`.
+If no DEV SERVER CONFIGURATION is available, check `project_index.json` for service `dev_command` and `default_port`.
+
+Start the server and wait for it to be ready using cross-platform port polling (see project-specific validation docs below).
+**Note**: The auto-validator kills the dev server after validation. You need to start it again for interactive testing.
+
+### 4.1: Navigate, Snapshot, and Save Screenshot (MANDATORY — MUST CALL THESE TOOLS)
+
+You MUST call these Playwright tools. Do NOT skip them.
+
+```bash
+# First: Create screenshots directory for audit trail
+mkdir -p screenshots
+```
 
 ```
-# Use browser automation tools
-1. Navigate to URL
-2. Take screenshot
-3. Check for console errors
-4. Verify visual elements
-5. Test interactions
+Tool: mcp__playwright__browser_navigate
+Args: {"url": "http://localhost:PORT"}
 ```
 
-### 4.2: Console Error Check
-
-**CRITICAL**: Check for JavaScript errors in the browser console.
-
 ```
-# Check browser console for:
-- Errors (red)
-- Warnings (yellow)
-- Failed network requests
+Tool: mcp__playwright__browser_snapshot
 ```
 
-### 4.3: Document Findings
+```
+Tool: mcp__playwright__browser_take_screenshot
+Args: {"fileName": "screenshots/01-initial-load"}
+```
+
+**MANDATORY**: Save ALL screenshots to `screenshots/` directory in the spec folder.
+Use numbered names: `01-initial-load`, `02-after-{action}`, `03-page-{name}`, etc.
+These screenshots are the audit trail proving you actually verified the app.
+
+### 4.2: Multi-Page Verification (MANDATORY for apps with 2+ pages)
+
+If the app has multiple pages/routes (check spec.md and route definitions in code):
+
+1. **Discover routes**: Search code for route definitions (React Router, GoRouter, Navigator, etc.)
+2. **Create checklist**: List ALL pages from spec + discovered routes
+3. **Verify EACH page**: Navigate → Snapshot → Screenshot → Console check → Interactions
+4. **Save screenshot per page**: `screenshots/02-page-{name}.png`
+5. **Document results**: Page-by-page PASS/FAIL matrix
+
+See the **Playwright Browser Validation** doc (injected below) for the full multi-page flow.
+
+**Single-page apps**: Skip this step, proceed to 4.3.
+
+### 4.3: Test Interactions (MANDATORY for interactive apps)
+
+Use `ref` values from the accessibility snapshot to click, type, and verify:
+
+```
+Tool: mcp__playwright__browser_click
+Args: {"element": "Button name", "ref": "e1"}
+```
+
+After each interaction, take a new snapshot or screenshot to verify the result.
+**Save post-interaction screenshots**: `screenshots/03-after-{action}.png`
+
+### 4.5: Console Error Check (MANDATORY — MUST CALL THIS TOOL)
+
+```
+Tool: mcp__playwright__browser_console_messages
+```
+
+Check for JavaScript/framework errors, warnings, and failed network requests.
+
+### 4.6: Cleanup Dev Server
+
+Stop the dev server using cross-platform cleanup commands from the project-specific validation docs.
+
+### 4.7: Document Findings
 
 ```
 BROWSER VERIFICATION:
+- Playwright tools called: [list all mcp__playwright__ tools used]
+- Screenshots saved: [count] (in screenshots/ directory)
+- Pages verified: [N/N total pages]
 - [Page/Component]: PASS/FAIL
+  - Screenshot: screenshots/[filename].png
   - Console errors: [list or "None"]
-  - Visual check: PASS/FAIL
-  - Interactions: PASS/FAIL
+  - Accessibility snapshot: [key elements found]
+  - Interactions tested: [list]
+  - Interactions result: PASS/FAIL
+
+MULTI-PAGE RESULTS (if applicable):
+| Page | Route | Screenshot | Result |
+|------|-------|-----------|--------|
+| [name] | [/path] | screenshots/[file] | PASS/FAIL |
 ```
+
+**IMPORTANT**: If you did NOT call `mcp__playwright__browser_navigate`, `browser_snapshot`,
+and `browser_take_screenshot`, you MUST mark Browser Verification as INCOMPLETE, not PASS.
+**IMPORTANT**: If screenshots are NOT saved to `screenshots/` directory, note this in the report.
 
 ---
 
@@ -336,6 +460,38 @@ grep -r "shell=True" --include="*.py" .
 grep -rE "(password|secret|api_key|token)\s*=\s*['\"][^'\"]+['\"]" --include="*.py" --include="*.js" --include="*.ts" .
 ```
 
+### 6.1.5: High-Risk Function Audit
+
+Scan the diff for security-sensitive functions and verify they are properly annotated:
+
+```bash
+# Find HIGH-RISK annotations in changed files
+git diff {{BASE_BRANCH}}...HEAD -U0 | grep -E "HIGH-RISK-(UNREVIEWED|REVIEWED)"
+
+# Find security-sensitive functions that may be MISSING annotations
+git diff {{BASE_BRANCH}}...HEAD | grep -E "(authenticate|authorize|verify_token|hash_password|encrypt|decrypt|execute_query|sanitize|validate_input|process_payment|sign_jwt)" | head -20
+```
+
+**Rules:**
+- `HIGH-RISK-UNREVIEWED` present → **document in report** (not blocking, but flag for human review)
+- Security-sensitive function with **no annotation** → **major issue** (coder should have annotated it)
+- `HIGH-RISK-REVIEWED` → skip (already human-reviewed)
+
+### 6.1.7: Code Annotation Scan
+
+Scan the diff for prohibited or incomplete annotations:
+
+```bash
+# Find TODO/FIXME/HACK/XXX in changed files
+git diff {{BASE_BRANCH}}...HEAD | grep -nE "^\+" | grep -E "(TODO|FIXME|HACK|XXX)" | head -20
+```
+
+**Classification:**
+- `FIXME` without documented reason → **critical issue** (must fix now or justify)
+- `HACK` or `XXX` → **critical issue** (must refactor)
+- `TODO` without spec reference (e.g., `TODO(spec-XXX)`) → **major issue**
+- `TODO(spec-XXX)` with valid reference → acceptable
+
 ### 6.2: Pattern Compliance
 
 Verify code follows established patterns:
@@ -408,7 +564,8 @@ Create a comprehensive QA report:
 | Unit Tests | ✓/✗ | X/Y passing |
 | Integration Tests | ✓/✗ | X/Y passing |
 | E2E Tests | ✓/✗ | X/Y passing |
-| Browser Verification | ✓/✗ | [summary] |
+| Browser Verification | ✓/✗ | [summary] — screenshots saved: [count] |
+| Multi-Page Verification | ✓/✗ | [N/N pages verified] or N/A |
 | Project-Specific Validation | ✓/✗ | [summary based on project type] |
 | Database Verification | ✓/✗ | [summary] |
 | Third-Party API Validation | ✓/✗ | [Context7 verification summary] |

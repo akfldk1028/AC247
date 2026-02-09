@@ -76,11 +76,17 @@
 | Feature | Description |
 |---------|-------------|
 | **Autonomous Tasks** | Describe your goal; agents handle planning, implementation, and validation |
-| **Parallel Execution** | Run multiple builds simultaneously with up to 12 agent terminals |
+| **24/7 Daemon Mode** | Background daemon watches for tasks, executes in dependency order, auto-merges |
+| **Design Decomposition** | Large projects auto-split into parallel child tasks with dependency ordering |
+| **Parallel Execution** | Run up to 3 concurrent tasks with 12 agent terminals |
 | **Isolated Workspaces** | All changes happen in git worktrees - your main branch stays safe |
+| **QA Validators** | Auto dev server + headless Chromium screenshots, a11y tree, console error capture via Playwright; plus build/API/DB validators |
 | **Self-Validating QA** | Built-in quality assurance loop catches issues before you review |
 | **AI-Powered Merge** | Automatic conflict resolution when integrating back to main |
-| **Memory Layer** | Agents retain insights across sessions for smarter builds |
+| **Memory Layer** | Graphiti-based knowledge graph retains insights across sessions |
+| **Unified Agent Registry** | 50+ agents managed as self-contained nodes with tools, security, and execution config |
+| **Custom Agent Plugins** | Add your own agents via `custom_agents/config.json` |
+| **Multi-Account Swapping** | Register multiple Claude accounts; auto-switches on rate limits |
 | **GitHub/GitLab Integration** | Import issues, investigate with AI, create merge requests |
 | **Linear Integration** | Sync tasks with Linear for team progress tracking |
 | **Cross-Platform** | Native desktop apps for Windows, macOS, and Linux |
@@ -110,16 +116,56 @@ AI-assisted feature planning with competitor analysis and audience targeting.
 
 ---
 
+## Architecture
+
+Auto Claude uses an **n8n-style node pattern** where each agent is a self-contained module with clear inputs, outputs, and security boundaries.
+
+```
+User creates task
+  └─> Spec Pipeline (gatherer → researcher → writer → critic)
+        └─> Daemon picks up task (status: "queue")
+              └─> Planner agent creates subtasks
+                    └─> Coder agent implements (parallel subagents)
+                          └─> QA Validators (build → browser/API/DB in parallel)
+                                └─> QA Reviewer validates against spec
+                                      └─> QA Fixer resolves issues (loop)
+                                            └─> Auto-merge to main branch
+```
+
+**Key modules:**
+
+| Module | Purpose |
+|--------|---------|
+| `core/agent_registry.py` | Unified registry for all 50+ agents (tools, security, execution) |
+| `core/pipeline.py` | Declarative pipeline engine with DAG execution |
+| `core/exec_policy.py` | Per-agent bash security levels (DENY/READONLY/ALLOWLIST/FULL) |
+| `core/tool_policy.py` | Standard tool groups and profiles (MINIMAL/READONLY/CODING/QA/FULL) |
+| `qa/validators/` | Independent validators: build (lint/compile/test), browser (Playwright headless), API, DB |
+| `qa/validator_orchestrator.py` | Selects and runs validators based on project capabilities |
+| `services/task_daemon/` | 24/7 background daemon with WebSocket + file-based status |
+
 ## Project Structure
 
 ```
 Auto-Claude/
 ├── apps/
-│   ├── backend/     # Python agents, specs, QA pipeline
-│   └── frontend/    # Electron desktop application
-├── guides/          # Additional documentation
-├── tests/           # Test suite
-└── scripts/         # Build utilities
+│   ├── backend/              # Python backend
+│   │   ├── core/             # Registry, pipeline, client, auth, security policies
+│   │   ├── agents/           # Planner, coder, session management
+│   │   ├── qa/               # Reviewer, fixer, loop, validators/
+│   │   ├── spec/             # Spec creation pipeline
+│   │   ├── security/         # Command allowlisting, hooks
+│   │   ├── services/         # Task daemon, recovery
+│   │   ├── prompts/          # Agent system prompts (.md)
+│   │   └── runners/          # CLI entry points (spec, daemon, insights)
+│   └── frontend/             # Electron desktop application
+│       └── src/
+│           ├── main/         # Agent lifecycle, terminal PTY, IPC handlers
+│           ├── renderer/     # React UI (Kanban, terminals, settings)
+│           └── shared/       # Types, i18n, state machines
+├── guides/                   # Documentation
+├── tests/                    # Backend test suite
+└── scripts/                  # Build utilities
 ```
 
 ---
@@ -132,14 +178,42 @@ For headless operation, CI/CD integration, or terminal-only workflows:
 cd apps/backend
 
 # Create a spec interactively
-python spec_runner.py --interactive
+python runners/spec_runner.py --interactive
+
+# Create from task description (auto-executes)
+python runners/spec_runner.py --task "Add login page" --project-dir /path/to/project --auto-merge
+
+# Create spec only (daemon picks it up)
+python runners/spec_runner.py --task "Add login page" --project-dir /path/to/project --no-build
+
+# Design task (auto-decomposes into child tasks)
+python runners/spec_runner.py --task "Build e-commerce platform" --project-dir /path --no-build --task-type design
 
 # Run autonomous build
 python run.py --spec 001
 
-# Review and merge
-python run.py --spec 001 --review
+# Run QA validation only
+python run.py --spec 001 --qa
+
+# Merge completed build
 python run.py --spec 001 --merge
+```
+
+### 24/7 Daemon Mode
+
+The daemon watches `.auto-claude/specs/` and auto-executes tasks with `status: "queue"`:
+
+```bash
+cd apps/backend
+
+# Start daemon (runs until Ctrl+C)
+python runners/daemon_runner.py --project-dir /path/to/project \
+  --status-file /path/to/project/.auto-claude/daemon_status.json
+
+# Execution flow:
+# spec_runner --no-build creates spec (status: "queue")
+# → daemon detects → planner → coder → QA → auto-merge → done
+# → daemon_status.json + WebSocket updated → UI Kanban card moves
 ```
 
 See [guides/CLI-USAGE.md](guides/CLI-USAGE.md) for complete CLI documentation.
@@ -156,11 +230,21 @@ For Linux-specific builds (Flatpak, AppImage), see [guides/linux.md](guides/linu
 
 ## Security
 
-Auto Claude uses a three-layer security model:
+Auto Claude uses a **4-layer defense-in-depth** security model. Each layer runs independently — blocking at any layer stops the command.
 
-1. **OS Sandbox** - Bash commands run in isolation
-2. **Filesystem Restrictions** - Operations limited to project directory
-3. **Dynamic Command Allowlist** - Only approved commands based on detected project stack
+```
+Layer 1: Agent Exec Policy    Per-agent security level (DENY → READONLY → ALLOWLIST → FULL)
+Layer 2: Security Hooks        Project-aware command allowlisting + specialized validators
+Layer 3: SDK Permissions       File operations restricted to project directory
+Layer 4: OS Sandbox            OS-level bash isolation via Claude Agent SDK
+```
+
+| Security Level | Agents | Access |
+|---------------|--------|--------|
+| **DENY** | spec_critic, commit_message, merge_resolver | No bash |
+| **READONLY** | spec_gatherer, researcher, insights, ideation | Read-only commands (cat, ls, grep, git) |
+| **FULL** | planner, coder, qa_reviewer, qa_fixer | Full (defers to project allowlist) |
+| **ALLOWLIST** | Custom/unknown agents | Per-project command allowlist |
 
 All releases are:
 - Scanned with VirusTotal before publishing
@@ -173,17 +257,18 @@ All releases are:
 
 | Command | Description |
 |---------|-------------|
-| `npm run install:all` | Install backend and frontend dependencies |
+| `npm run install:all` | Install all dependencies (backend + frontend) |
 | `npm start` | Build and run the desktop app |
-| `npm run dev` | Run in development mode with hot reload |
+| `npm run dev` | Development mode with hot reload |
 | `npm run package` | Package for current platform |
 | `npm run package:mac` | Package for macOS |
 | `npm run package:win` | Package for Windows |
 | `npm run package:linux` | Package for Linux |
 | `npm run package:flatpak` | Package as Flatpak (see [guides/linux.md](guides/linux.md)) |
-| `npm run lint` | Run linter |
-| `npm test` | Run frontend tests |
-| `npm run test:backend` | Run backend tests |
+| `npm run lint` | Run Biome linter (frontend) |
+| `npm test` | Run frontend tests (Vitest) |
+| `npm run test:backend` | Run backend tests (pytest) |
+| `npm run typecheck` | TypeScript strict type check |
 
 ---
 

@@ -130,7 +130,7 @@ from agents.tools_pkg import (
     ELECTRON_TOOLS,
     GRAPHITI_MCP_TOOLS,
     LINEAR_TOOLS,
-    PUPPETEER_TOOLS,
+    PLAYWRIGHT_TOOLS,
     create_auto_claude_mcp_server,
     get_allowed_tools,
     get_required_mcp_servers,
@@ -144,6 +144,7 @@ from core.auth import (
 )
 from linear_updater import is_linear_enabled
 from prompts_pkg.project_context import detect_project_capabilities, load_project_index
+from core.exec_policy import evaluate_exec_policy
 from security import bash_security_hook
 
 
@@ -367,7 +368,7 @@ def load_project_mcp_config(project_dir: Path) -> dict:
     - CONTEXT7_ENABLED (default: true)
     - LINEAR_MCP_ENABLED (default: true)
     - ELECTRON_MCP_ENABLED (default: false)
-    - PUPPETEER_MCP_ENABLED (default: false)
+    - BROWSER_MCP_DISABLED (default: false) — opt-out for Playwright browser automation
     - AGENT_MCP_<agent>_ADD (per-agent MCP additions)
     - AGENT_MCP_<agent>_REMOVE (per-agent MCP removals)
     - CUSTOM_MCP_SERVERS (JSON array of custom server configs)
@@ -387,7 +388,7 @@ def load_project_mcp_config(project_dir: Path) -> dict:
         "CONTEXT7_ENABLED",
         "LINEAR_MCP_ENABLED",
         "ELECTRON_MCP_ENABLED",
-        "PUPPETEER_MCP_ENABLED",
+        "BROWSER_MCP_DISABLED",
     }
 
     try:
@@ -457,7 +458,7 @@ def is_electron_mcp_enabled() -> bool:
     Check if Electron MCP server integration is enabled.
 
     Requires ELECTRON_MCP_ENABLED to be set to 'true'.
-    When enabled, QA agents can use Puppeteer MCP tools to connect to Electron apps
+    When enabled, QA agents can use Electron MCP tools to connect to Electron apps
     via Chrome DevTools Protocol on the configured debug port.
     """
     return os.environ.get("ELECTRON_MCP_ENABLED", "").lower() == "true"
@@ -528,6 +529,105 @@ def load_claude_md(project_dir: Path) -> str | None:
         except Exception:
             return None
     return None
+
+
+def _create_exec_policy_hook(
+    agent_type: str, project_dir: Path, spec_dir: Path
+):
+    """Create an agent-aware bash security hook (closure factory).
+
+    Returns an async hook function that:
+    1. Evaluates exec_policy for the agent (DENY/READONLY/ALLOWLIST/FULL).
+    2. If DENY or READONLY blocks → immediately deny with reason.
+    3. If ALLOWLIST/FULL allows → delegates to the existing bash_security_hook
+       for defense-in-depth (SecurityProfile validation, command validators).
+    4. Logs EXEC_BLOCKED events to events.jsonl on denial.
+
+    Args:
+        agent_type: Agent type identifier (e.g., "coder", "spec_gatherer").
+        project_dir: Project directory.
+        spec_dir: Spec directory for override lookup.
+
+    Returns:
+        Async hook function compatible with SDK PreToolUse hooks.
+    """
+
+    # Pre-compute worktree detection for the hook closure
+    _is_worktree = (project_dir / ".git").is_file()  # Worktrees have .git as file, not dir
+
+    async def exec_policy_hook(
+        input_data: dict, tool_use_id: str | None = None, context=None
+    ) -> dict:
+        # Only intercept Bash tool calls
+        tool_name = input_data.get("tool_name", "")
+        if tool_name != "Bash":
+            return {}
+
+        tool_input = input_data.get("tool_input")
+        if not tool_input or not isinstance(tool_input, dict):
+            return {}
+
+        command = tool_input.get("command", "")
+        if not command:
+            return {}
+
+        # Block dangerous git commands in worktree mode (Bug #18: agent bypasses merge flow)
+        if _is_worktree:
+            import re
+            cmd_lower = command.lower().strip()
+            # Block: git merge, git checkout <base-branch>, git push, git rebase
+            worktree_forbidden_patterns = [
+                r'\bgit\s+merge\b',
+                r'\bgit\s+checkout\s+(main|master|develop)\b',
+                r'\bgit\s+push\b',
+                r'\bgit\s+rebase\b',
+            ]
+            for pattern in worktree_forbidden_patterns:
+                if re.search(pattern, cmd_lower):
+                    return {
+                        "hookSpecificOutput": {
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": (
+                                f"BLOCKED: '{command[:80]}' is forbidden in worktree mode. "
+                                "Merging/pushing is handled automatically after QA passes. "
+                                "Only use git add/commit/status/diff in your worktree."
+                            ),
+                        }
+                    }
+
+        # Evaluate agent-level exec policy
+        decision = evaluate_exec_policy(
+            command, agent_type, project_dir, spec_dir
+        )
+
+        if not decision.allowed:
+            # Log blocked execution to events.jsonl
+            try:
+                from core.task_event import append_event_log
+
+                append_event_log(spec_dir, {
+                    "type": "EXEC_BLOCKED",
+                    "agentType": agent_type,
+                    "command": command[:200],
+                    "reason": decision.reason,
+                    "policySource": decision.policy_source,
+                })
+            except Exception:
+                pass  # Non-critical: best-effort logging
+
+            return {
+                "hookSpecificOutput": {
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": decision.reason,
+                }
+            }
+
+        # Agent-level policy allows → delegate to existing security hook
+        # This provides defense-in-depth: even FULL agents go through
+        # SecurityProfile validation, command validators, secret scanning, etc.
+        return await bash_security_hook(input_data, tool_use_id, context)
+
+    return exec_policy_hook
 
 
 def create_client(
@@ -639,8 +739,8 @@ def create_client(
     browser_tools_permissions = []
     if "electron" in required_servers:
         browser_tools_permissions = ELECTRON_TOOLS
-    elif "puppeteer" in required_servers:
-        browser_tools_permissions = PUPPETEER_TOOLS
+    elif "playwright" in required_servers:
+        browser_tools_permissions = PLAYWRIGHT_TOOLS
 
     # Create comprehensive security settings
     # Note: Using both relative paths ("./**") and absolute paths to handle
@@ -768,8 +868,8 @@ def create_client(
         mcp_servers_list.append(
             f"electron (desktop automation, port {get_electron_debug_port()})"
         )
-    if "puppeteer" in required_servers:
-        mcp_servers_list.append("puppeteer (browser automation)")
+    if "playwright" in required_servers:
+        mcp_servers_list.append("playwright (browser automation)")
     if "linear" in required_servers:
         mcp_servers_list.append("linear (project management)")
     if graphiti_mcp_enabled:
@@ -819,12 +919,52 @@ def create_client(
             "args": ["exec", "electron-mcp-server"],
         }
 
-    if "puppeteer" in required_servers:
-        # Puppeteer for web frontends (not Electron)
-        mcp_servers["puppeteer"] = {
-            "command": "npx",
-            "args": ["puppeteer-mcp-server"],
-        }
+    if "playwright" in required_servers:
+        # Playwright MCP for web frontends (not Electron)
+        import platform as _platform
+
+        if _platform.system() == "Windows":
+            mcp_servers["playwright"] = {
+                "command": "cmd",
+                "args": ["/c", "npx", "@playwright/mcp@latest", "--headless"],
+            }
+        else:
+            mcp_servers["playwright"] = {
+                "command": "npx",
+                "args": ["@playwright/mcp@latest", "--headless"],
+            }
+
+    if "marionette" in required_servers:
+        # Marionette MCP for Flutter widget-level interaction (leancodepl/marionette_mcp)
+        # Requires: dart pub global activate marionette_mcp
+        # Connects to running Flutter app via VM Service protocol
+        import platform as _platform2
+        import shutil
+
+        # Find marionette_mcp in PATH or Dart pub global cache
+        marionette_cmd = shutil.which("marionette_mcp")
+        if not marionette_cmd and _platform2.system() == "Windows":
+            # Dart pub global installs .bat files on Windows
+            pub_cache_bin = Path.home() / "AppData" / "Local" / "Pub" / "Cache" / "bin"
+            bat_path = pub_cache_bin / "marionette_mcp.bat"
+            if bat_path.exists():
+                marionette_cmd = str(bat_path)
+
+        if marionette_cmd:
+            if _platform2.system() == "Windows":
+                mcp_servers["marionette"] = {
+                    "command": "cmd",
+                    "args": ["/c", marionette_cmd],
+                }
+            else:
+                mcp_servers["marionette"] = {
+                    "command": marionette_cmd,
+                    "args": [],
+                }
+        else:
+            logger.warning(
+                "marionette_mcp not found — install with: dart pub global activate marionette_mcp"
+            )
 
     if "linear" in required_servers:
         mcp_servers["linear"] = {
@@ -907,6 +1047,9 @@ def create_client(
     print()
 
     # Build options dict, conditionally including output_format
+    resolved_cwd = str(project_dir.resolve())
+    print(f"[SDK] cwd={resolved_cwd} (agent_type={agent_type})")
+
     options_kwargs: dict[str, Any] = {
         "model": model,
         "system_prompt": base_prompt,
@@ -914,11 +1057,13 @@ def create_client(
         "mcp_servers": mcp_servers,
         "hooks": {
             "PreToolUse": [
-                HookMatcher(matcher="Bash", hooks=[bash_security_hook]),
+                HookMatcher(matcher="Bash", hooks=[
+                    _create_exec_policy_hook(agent_type, project_dir, spec_dir)
+                ]),
             ],
         },
         "max_turns": 1000,
-        "cwd": str(project_dir.resolve()),
+        "cwd": resolved_cwd,
         "settings": str(settings_file.resolve()),
         "env": sdk_env,  # Pass ANTHROPIC_BASE_URL etc. to subprocess
         "max_thinking_tokens": max_thinking_tokens,  # Extended thinking budget

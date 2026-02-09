@@ -264,6 +264,111 @@ def should_refresh_project_index(project_dir: Path) -> bool:
     return False  # Cache is fresh
 
 
+def extract_dev_server_info(project_index: dict) -> str:
+    """
+    Extract dev server configuration from project_index.json and format
+    as a markdown section for injection into QA prompts.
+
+    Extracts dev_command, port, framework, and web_setup_command for each
+    service that has a dev server. This enables QA agents to auto-start
+    dev servers without hardcoded values.
+
+    Args:
+        project_index: Parsed project_index.json dict
+
+    Returns:
+        Formatted markdown string with dev server info, or empty string if none found
+    """
+    import re
+
+    services = project_index.get("services", {})
+    if isinstance(services, dict):
+        service_items = list(services.items())
+    elif isinstance(services, list):
+        service_items = [(s.get("name", f"service_{i}"), s) for i, s in enumerate(services)]
+    else:
+        return ""
+
+    entries = []
+    for name, service in service_items:
+        if not isinstance(service, dict):
+            continue
+
+        dev_command = service.get("dev_command") or service.get("web_dev_command", "")
+        if not dev_command:
+            continue
+
+        framework = service.get("framework", "unknown")
+        port = service.get("default_port")
+
+        # Try to extract port from dev_command if not explicitly set
+        if not port and dev_command:
+            port_match = re.search(r"--(?:web-)?port[=\s]+(\d+)", dev_command)
+            if port_match:
+                port = int(port_match.group(1))
+            else:
+                # Common framework defaults
+                port_match = re.search(r":(\d{4,5})", dev_command)
+                if port_match:
+                    port = int(port_match.group(1))
+
+        if not port:
+            continue
+
+        url = f"http://localhost:{port}"
+        web_setup = service.get("web_setup_command", "")
+
+        entry = f"- **{name}** ({framework})\n"
+        entry += f"  - Dev command: `{dev_command}`\n"
+        entry += f"  - Port: `{port}`\n"
+        entry += f"  - URL: `{url}`\n"
+        if web_setup:
+            entry += f"  - Web setup (if web/ missing): `{web_setup}`\n"
+
+        entries.append(entry)
+
+    if not entries:
+        return ""
+
+    section = "## DEV SERVER CONFIGURATION\n\n"
+    section += "The following dev servers are available for runtime validation:\n\n"
+    section += "\n".join(entries)
+    section += "\n"
+    section += "### Cross-Platform Port Health Check\n\n"
+    section += "**Do NOT use `sleep 15`**. Instead, poll the port until the server is ready:\n\n"
+    section += "**Windows (PowerShell):**\n"
+    section += "```powershell\n"
+    section += "# Poll until port is listening (timeout 60s)\n"
+    section += "$timeout = 60; $elapsed = 0\n"
+    section += "while ($elapsed -lt $timeout) {\n"
+    section += "  try { $tcp = New-Object System.Net.Sockets.TcpClient('localhost', PORT); $tcp.Close(); break }\n"
+    section += "  catch { Start-Sleep -Seconds 2; $elapsed += 2 }\n"
+    section += "}\n"
+    section += "```\n\n"
+    section += "**Linux/macOS (Bash):**\n"
+    section += "```bash\n"
+    section += "# Poll until port is listening (timeout 60s)\n"
+    section += "timeout=60; elapsed=0\n"
+    section += "while [ $elapsed -lt $timeout ]; do\n"
+    section += '  curl -s http://localhost:PORT > /dev/null 2>&1 && break\n'
+    section += "  sleep 2; elapsed=$((elapsed + 2))\n"
+    section += "done\n"
+    section += "```\n\n"
+    section += "### Cross-Platform Server Cleanup\n\n"
+    section += "**Windows (PowerShell):**\n"
+    section += "```powershell\n"
+    section += "Get-NetTCPConnection -LocalPort PORT -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\n"
+    section += "```\n\n"
+    section += "**Linux/macOS (Bash):**\n"
+    section += "```bash\n"
+    section += "kill $(lsof -ti:PORT) 2>/dev/null || true\n"
+    section += "```\n\n"
+    section += "Replace `PORT` with the actual port number from above.\n\n"
+    section += "---\n\n"
+
+    return section
+
+
 def get_mcp_tools_for_project(capabilities: dict) -> list[str]:
     """
     Get list of MCP tool documentation files to include based on capabilities.
@@ -294,14 +399,15 @@ def get_mcp_tools_for_project(capabilities: dict) -> list[str]:
     if capabilities.get("is_react_native") or capabilities.get("is_expo"):
         tools.append("mcp_tools/react_native_validation.md")
 
-    # Puppeteer browser automation (web frontends + Flutter web + Expo web)
-    needs_puppeteer = (
+    # Playwright browser automation (web frontends + Flutter web + Expo web + Tauri)
+    needs_browser = (
         capabilities.get("is_web_frontend")
         or capabilities.get("is_flutter")
         or capabilities.get("is_expo")
+        or capabilities.get("is_tauri")
     )
-    if needs_puppeteer and not capabilities.get("is_electron"):
-        tools.append("mcp_tools/puppeteer_browser.md")
+    if needs_browser and not capabilities.get("is_electron"):
+        tools.append("mcp_tools/playwright_browser.md")
 
     # Database validation
     if capabilities.get("has_database"):

@@ -96,89 +96,40 @@ class AgentConfig:
     post_hook: Callable[[str, Path, int], None] | None = None
 
 
-# Agent Registry - Task Type별 Agent 매핑
-# 새 agent 추가 시 여기에 등록
+# Agent Registry - backed by AgentRegistry singleton
 #
 # Key design decision: design/architecture agents use run.py (use_claude_cli=False)
 # because run.py → create_client() → auto-claude MCP server → create_batch_child_specs tool.
 # Claude CLI mode does NOT have access to auto-claude MCP tools.
-AGENT_REGISTRY: dict[str, AgentConfig] = {
-    # Plan Mode Agents (설계/분석)
-    # use_claude_cli=False → run.py 사용 → MCP tool 접근 가능
-    # (create_batch_child_specs 등)
-    "design": AgentConfig(
-        use_claude_cli=False,  # run.py for MCP tool access
-        system_prompt="design_architect.md",
-        prompt_template=(
-            "You are a Design Architect Agent.\n\n"
-            "Task: {task}\n\n"
-            "Analyze the project structure and create implementation tasks using "
-            "the create_batch_child_specs tool.\n\n"
-            "Spec Content:\n{spec_content}"
-        ),
-    ),
-    "architecture": AgentConfig(
-        use_claude_cli=False,  # run.py for MCP tool access
-        prompt_template=(
-            "You are an Architecture Analyst Agent.\n\n"
-            "Task: {task}\n\n"
-            "Analyze the codebase architecture and provide recommendations.\n\n"
-            "Spec Content:\n{spec_content}"
-        ),
-    ),
-    "research": AgentConfig(
-        use_claude_cli=True,
-        execution_mode=ExecutionMode.PLAN,
-        prompt_template=(
-            "You are a Research Agent.\n\n"
-            "Task: {task}\n\n"
-            "Investigate the codebase and gather information.\n\n"
-            "Spec Content:\n{spec_content}"
-        ),
-    ),
-    "review": AgentConfig(
-        use_claude_cli=True,
-        execution_mode=ExecutionMode.PLAN,
-        prompt_template=(
-            "You are a Code Review Agent.\n\n"
-            "Task: {task}\n\n"
-            "Review the code and provide feedback.\n\n"
-            "Spec Content:\n{spec_content}"
-        ),
-    ),
 
-    # Implementation Agents (구현)
-    # 기본값 = run.py 사용 (Auto-Claude pipeline: planner → coder → QA)
-    "impl": AgentConfig(),
-    "frontend": AgentConfig(
-        mcp_servers=["puppeteer"],  # UI 테스트용
-    ),
-    "backend": AgentConfig(
-        mcp_servers=["context7"],  # API 문서 참조
-    ),
-    "database": AgentConfig(
-        mcp_servers=["context7"],  # DB 라이브러리 문서
-    ),
-    "api": AgentConfig(),
-    "test": AgentConfig(),
-    "integration": AgentConfig(),
-    "docs": AgentConfig(),
 
-    # Verification & Error-Check Agents
-    "verify": AgentConfig(
-        use_claude_cli=False,  # run.py for MCP tool access
-        system_prompt="verify_agent.md",
-        # MCP servers resolved dynamically by models.py AGENT_CONFIGS
-        # ("browser" → puppeteer/electron based on project type)
-    ),
-    "error_check": AgentConfig(
-        use_claude_cli=False,  # run.py for MCP tool access
-        system_prompt="error_check_agent.md",
-    ),
+def _build_agent_registry() -> dict[str, AgentConfig]:
+    """Build AGENT_REGISTRY from the unified AgentRegistry.
 
-    # Default fallback
-    "default": AgentConfig(),
-}
+    Reads execution fields from each AgentDefinition and creates
+    AgentConfig objects. Identical shape to the old hardcoded dict.
+    """
+    from core.agent_registry import AgentRegistry as UnifiedRegistry
+
+    unified = UnifiedRegistry.instance()
+    registry: dict[str, AgentConfig] = {}
+
+    for agent_id, defn in unified.all_agents().items():
+        registry[agent_id] = AgentConfig(
+            script=defn.script,
+            use_claude_cli=defn.use_claude_cli,
+            prompt_template=defn.prompt_template,
+            system_prompt=defn.system_prompt,
+            execution_mode=defn.execution_mode,
+            extra_args=list(defn.extra_args),
+            mcp_servers=list(defn.mcp_servers),
+        )
+
+    return registry
+
+
+# Build once at module load
+AGENT_REGISTRY: dict[str, AgentConfig] = _build_agent_registry()
 
 
 def register_agent(task_type: str, config: AgentConfig) -> None:
@@ -197,6 +148,10 @@ def register_agent(task_type: str, config: AgentConfig) -> None:
 def get_agent_config(task_type: str) -> AgentConfig:
     """Get agent config for a task type, falling back to default."""
     return AGENT_REGISTRY.get(task_type, AGENT_REGISTRY["default"])
+
+
+# Custom agents are now auto-registered by AgentRegistry._load_custom_agents()
+# in core/agent_registry.py — no separate bridge needed.
 
 
 class TaskExecutor:

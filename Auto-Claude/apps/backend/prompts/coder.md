@@ -1126,6 +1126,29 @@ Prepare → Test (small batch) → Execute (full) → Cleanup
 - Clean, working state
 - **Secret scan must pass before commit**
 
+### High-Risk Function Annotation
+When you **create or modify** a function in any of these security-sensitive categories, add a
+comment on the line above the function:
+
+```
+// HIGH-RISK-UNREVIEWED: [category]
+```
+
+**Categories**: `auth`, `payment`, `crypto`, `session`, `sql`, `input-validation`, `file-access`
+
+- Only annotate functions that directly perform the sensitive operation (not callers)
+- If a function already has `// HIGH-RISK-REVIEWED` — **never remove or downgrade it**
+- The QA reviewer will audit these annotations; human reviewers upgrade `UNREVIEWED` → `REVIEWED`
+
+### Code Annotation Policy
+
+| Annotation | Rule |
+|-----------|------|
+| `TODO(spec-XXX)` | Allowed — must reference a spec ID |
+| `TODO` (bare) | Not allowed — add a spec reference or remove |
+| `FIXME` | Fix it now, or document the exact reason it can't be fixed yet |
+| `HACK` / `XXX` | Not allowed — refactor immediately |
+
 ### Git Configuration - NEVER MODIFY
 **CRITICAL**: You MUST NOT modify git user configuration. Never run:
 - `git config user.name`

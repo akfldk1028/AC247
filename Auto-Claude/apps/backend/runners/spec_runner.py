@@ -224,6 +224,13 @@ Examples:
         action="store_true",
         help="Automatically merge to project after QA passes (full end-to-end automation)",
     )
+    parser.add_argument(
+        "--task-type",
+        type=str,
+        choices=["default", "design", "architecture", "research"],
+        default=None,
+        help="Task type (default: auto-detect). 'design' creates child tasks for large project decomposition.",
+    )
 
     args = parser.parse_args()
 
@@ -310,7 +317,7 @@ Examples:
         success = asyncio.run(
             orchestrator.run(
                 interactive=args.interactive or not task_description,
-                auto_approve=args.auto_approve,
+                auto_approve=args.auto_approve or args.no_build,
             )
         )
 
@@ -323,6 +330,32 @@ Examples:
             "Spec creation succeeded",
             spec_dir=str(orchestrator.spec_dir),
         )
+
+        # When --task-type is specified, update implementation_plan.json
+        if args.task_type:
+            plan_path = orchestrator.spec_dir / "implementation_plan.json"
+            if plan_path.exists():
+                try:
+                    from core.file_utils import write_json_atomic
+
+                    with open(plan_path, encoding="utf-8") as f:
+                        plan_data = json.load(f)
+                    plan_data["taskType"] = args.task_type
+                    # Design/architecture tasks don't use phases/subtasks — they create child specs
+                    if args.task_type in ("design", "architecture"):
+                        plan_data["phases"] = []
+                        plan_data["subtasks"] = []
+                    write_json_atomic(plan_path, plan_data, indent=2)
+                    debug(
+                        "spec_runner",
+                        f"Set taskType to '{args.task_type}'",
+                    )
+                except (json.JSONDecodeError, OSError) as e:
+                    debug_error("spec_runner", f"Failed to set taskType: {e}")
+                    print_status(
+                        f"Warning: Could not set taskType to '{args.task_type}'.",
+                        "warning",
+                    )
 
         # When --no-build, set plan to "queue" so daemon can auto-pick it up
         if args.no_build:
