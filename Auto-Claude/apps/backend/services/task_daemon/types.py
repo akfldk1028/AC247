@@ -50,6 +50,9 @@ class TaskType(str, Enum):
     VERIFY = "verify"              # 구현 검증 (테스트/빌드/런타임)
     ERROR_CHECK = "error_check"    # 에러 수정
 
+    # Multi-Path Search
+    MCTS = "mcts"                  # MCTS multi-path search
+
     # Other Tasks
     TEST = "test"                  # 테스트
     INTEGRATION = "integration"    # 통합

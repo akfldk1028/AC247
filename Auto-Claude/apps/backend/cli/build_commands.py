@@ -239,26 +239,73 @@ def handle_build_command(
     print(f"[WORKSPACE] worktree_manager={'set' if worktree_manager else 'None'}")
     print(f"[WORKSPACE] auto_merge={auto_merge}")
 
+    # Check for MCTS task type — route to MCTS orchestrator instead of planner→coder
+    _is_mcts = False
     try:
-        debug("run.py", "Starting agent execution")
+        import json as _json
+        _plan_path = spec_dir / "implementation_plan.json"
+        if _plan_path.exists():
+            with open(_plan_path, encoding="utf-8") as _f:
+                _plan = _json.load(_f)
+            _is_mcts = _plan.get("taskType") == "mcts"
+    except (Exception,):
+        pass
 
-        asyncio.run(
-            run_autonomous_agent(
-                project_dir=working_dir,  # Use worktree if isolated
-                spec_dir=spec_dir,
-                model=model,
-                max_iterations=max_iterations,
-                verbose=verbose,
-                source_spec_dir=source_spec_dir,  # For syncing progress back to main project
-                original_project_dir=project_dir if working_dir != project_dir else None,
+    qa_approved = False
+
+    try:
+        if _is_mcts:
+            debug("run.py", "Detected MCTS task type — routing to MCTS orchestrator")
+            print("\n" + "=" * 70)
+            print("  MCTS MULTI-PATH SEARCH MODE")
+            print("=" * 70 + "\n")
+
+            from mcts import run_mcts_search
+
+            # Use project_dir (not working_dir) — MCTS creates child specs in
+            # .auto-claude/specs/ which the daemon picks up from the main project.
+            mcts_result = asyncio.run(
+                run_mcts_search(
+                    project_dir=project_dir,
+                    spec_dir=spec_dir,
+                    model=model,
+                    max_iterations=max_iterations or 10,
+                    budget_seconds=3600.0,
+                )
             )
-        )
+
+            qa_approved = mcts_result.success
+            if mcts_result.best_spec_id:
+                debug_success(
+                    "run.py",
+                    f"MCTS best branch: {mcts_result.best_spec_id} "
+                    f"(score={mcts_result.best_score:.2f})",
+                )
+            else:
+                debug("run.py", "MCTS found no viable solution")
+
+        else:
+            debug("run.py", "Starting agent execution")
+
+            asyncio.run(
+                run_autonomous_agent(
+                    project_dir=working_dir,  # Use worktree if isolated
+                    spec_dir=spec_dir,
+                    model=model,
+                    max_iterations=max_iterations,
+                    verbose=verbose,
+                    source_spec_dir=source_spec_dir,  # For syncing progress back to main project
+                    original_project_dir=project_dir if working_dir != project_dir else None,
+                )
+            )
         debug_success("run.py", "Agent execution completed")
 
         # Run QA validation BEFORE finalization (while worktree still exists)
         # QA must sign off before the build is considered complete
-        qa_approved = True  # Default to approved if QA is skipped
-        if not skip_qa and should_run_qa(spec_dir):
+        # MCTS handles QA internally (each child branch has its own QA)
+        if not _is_mcts:
+            qa_approved = True  # Default to approved if QA is skipped
+        if not _is_mcts and not skip_qa and should_run_qa(spec_dir):
             print("\n" + "=" * 70)
             print("  SUBTASKS COMPLETE - STARTING QA VALIDATION")
             print("=" * 70)
@@ -518,7 +565,7 @@ def run_pipeline(
     CLI use, call handle_build_command() instead.
 
     Args:
-        pipeline_id: Pipeline to run ("default", "design", "qa_only")
+        pipeline_id: Pipeline to run ("default", "design", "qa_only", "mcts")
         context: Pipeline context dict with keys:
             - project_dir (Path): Project root (REQUIRED)
             - working_dir (Path): Working directory, may be worktree (REQUIRED)

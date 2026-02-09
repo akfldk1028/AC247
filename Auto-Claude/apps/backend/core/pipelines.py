@@ -166,6 +166,51 @@ QA_ONLY_PIPELINE = PipelineDefinition(
 )
 
 
+MCTS_PIPELINE = PipelineDefinition(
+    id="mcts",
+    name="MCTS Multi-Path Search",
+    stages=[
+        PipelineStage(
+            id="mcts_search",
+            stage_type=StageType.HANDLER,
+            handler="core.pipelines:_run_mcts",
+            depends_on=[],
+            description="Run MCTS multi-path search with parallel branch exploration",
+        ),
+        PipelineStage(
+            id="merge_best",
+            stage_type=StageType.HANDLER,
+            handler="core.pipelines:_run_merge",
+            depends_on=["mcts_search"],
+            condition="stage_mcts_search_result",
+            description="Merge the best MCTS branch to project",
+        ),
+    ],
+)
+
+
+async def _run_mcts(ctx: dict) -> bool:
+    """Run MCTS multi-path search."""
+    from mcts import run_mcts_search
+
+    result = await run_mcts_search(
+        project_dir=ctx["project_dir"],
+        spec_dir=ctx["spec_dir"],
+        model=ctx["model"],
+        max_iterations=ctx.get("mcts_max_iterations", 10),
+        max_branches=ctx.get("mcts_max_branches", 20),
+        budget_seconds=ctx.get("mcts_budget_seconds", 3600.0),
+    )
+
+    ctx["mcts_result"] = result
+    ctx["stage_mcts_search_result"] = result.success
+    # For the merge stage, set which spec to merge
+    if result.best_spec_id:
+        ctx["best_spec_id"] = result.best_spec_id
+
+    return result.success
+
+
 # =============================================================================
 # Pipeline Registry
 # =============================================================================
@@ -174,6 +219,7 @@ _PIPELINES: dict[str, PipelineDefinition] = {
     "default": DEFAULT_PIPELINE,
     "design": DESIGN_PIPELINE,
     "qa_only": QA_ONLY_PIPELINE,
+    "mcts": MCTS_PIPELINE,
 }
 
 

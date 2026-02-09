@@ -17,7 +17,7 @@ VALID_XSTATE_STATES = {
 VALID_EXECUTION_PHASES = {
     "backlog", "planning", "coding", "qa_review", "qa_fixing", "complete", "failed",
 }
-VALID_TASK_TYPES = {"default", "design", "architecture", "research"}
+VALID_TASK_TYPES = {"default", "design", "architecture", "research", "mcts"}
 
 
 def validate_plan(data: dict[str, Any]) -> tuple[bool, list[str]]:

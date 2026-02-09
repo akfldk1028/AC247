@@ -227,9 +227,9 @@ Examples:
     parser.add_argument(
         "--task-type",
         type=str,
-        choices=["default", "design", "architecture", "research"],
+        choices=["default", "design", "architecture", "research", "mcts"],
         default=None,
-        help="Task type (default: auto-detect). 'design' creates child tasks for large project decomposition.",
+        help="Task type (default: auto-detect). 'design' creates child tasks. 'mcts' runs multi-path search.",
     )
 
     args = parser.parse_args()
@@ -341,8 +341,8 @@ Examples:
                     with open(plan_path, encoding="utf-8") as f:
                         plan_data = json.load(f)
                     plan_data["taskType"] = args.task_type
-                    # Design/architecture tasks don't use phases/subtasks — they create child specs
-                    if args.task_type in ("design", "architecture"):
+                    # Design/architecture/mcts tasks don't use phases/subtasks — they create child specs
+                    if args.task_type in ("design", "architecture", "mcts"):
                         plan_data["phases"] = []
                         plan_data["subtasks"] = []
                     write_json_atomic(plan_path, plan_data, indent=2)

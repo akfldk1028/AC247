@@ -913,6 +913,58 @@ BUILTIN_AGENTS: dict[str, AgentDefinition] = {
     ),
 
     # ═══════════════════════════════════════════════════════════════════════
+    # MCTS (Multi-Path Search) AGENTS
+    # ═══════════════════════════════════════════════════════════════════════
+    "mcts_idea_generator": AgentDefinition(
+        id="mcts_idea_generator",
+        description="Generates N diverse solution approaches for a given task",
+        category="design",
+        tools=BASE_READ_TOOLS + WEB_TOOLS,
+        mcp_servers=["context7"],
+        auto_claude_tools=[],
+        thinking_default="high",
+        security_level="readonly",
+        system_prompt="mcts_idea_generator.md",
+        tool_profile="READONLY",
+    ),
+    "mcts_improver": AgentDefinition(
+        id="mcts_improver",
+        description="Proposes targeted improvements to an existing solution based on lessons",
+        category="design",
+        tools=BASE_READ_TOOLS,
+        mcp_servers=[],
+        auto_claude_tools=[],
+        thinking_default="high",
+        security_level="readonly",
+        system_prompt="mcts_improver.md",
+        tool_profile="READONLY",
+    ),
+    "mcts_debugger": AgentDefinition(
+        id="mcts_debugger",
+        description="Analyzes failed branch root cause and proposes fix direction",
+        category="design",
+        tools=BASE_READ_TOOLS,
+        mcp_servers=[],
+        auto_claude_tools=[],
+        thinking_default="medium",
+        security_level="readonly",
+        system_prompt="mcts_debugger.md",
+        tool_profile="READONLY",
+    ),
+    "mcts_lesson_extractor": AgentDefinition(
+        id="mcts_lesson_extractor",
+        description="Compares completed branches and extracts structured lessons",
+        category="analysis",
+        tools=BASE_READ_TOOLS,
+        mcp_servers=[],
+        auto_claude_tools=[],
+        thinking_default="medium",
+        security_level="readonly",
+        system_prompt="mcts_lesson_extractor.md",
+        tool_profile="READONLY",
+    ),
+
+    # ═══════════════════════════════════════════════════════════════════════
     # DEFAULT FALLBACK
     # ═══════════════════════════════════════════════════════════════════════
     "default": AgentDefinition(

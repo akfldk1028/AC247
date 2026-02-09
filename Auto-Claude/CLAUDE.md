@@ -106,6 +106,7 @@ autonomous-coding/
 │   │   ├── core/                # agent_registry.py, pipeline.py, client.py, auth.py, platform/
 │   │   ├── security/            # Command allowlisting, validators, hooks
 │   │   ├── agents/              # planner, coder, session management
+│   │   ├── mcts/                # MCTS multi-path search (tree, scorer, orchestrator)
 │   │   ├── qa/                  # reviewer, fixer, loop, criteria, validators/
 │   │   ├── spec/                # Spec creation pipeline
 │   │   ├── cli/                 # CLI commands (spec, build, workspace, QA)
@@ -180,6 +181,9 @@ python runners/spec_runner.py --task "description" --project-dir /path/to/projec
 # Step 1b: Create DESIGN task (auto-decomposes into child tasks visible in UI Kanban)
 python runners/spec_runner.py --task "description" --project-dir /path --no-build --task-type design
 
+# Step 1c: Create MCTS task (explores multiple solution approaches in parallel)
+python runners/spec_runner.py --task "description" --project-dir /path --no-build --task-type mcts
+
 # Step 2: Start daemon (watches specs/, auto-executes, writes daemon_status.json for UI)
 python runners/daemon_runner.py --project-dir /path/to/project \
   --status-file /path/to/project/.auto-claude/daemon_status.json
@@ -253,6 +257,7 @@ The daemon uses a layered communication architecture for sub-second UI updates:
 | Declarative pipeline | `core/pipeline.py` + `core/pipelines.py` | DAG-based pipeline engine with conditions, parallelism, retry |
 | QA validators | `qa/validators/` + `qa/validator_orchestrator.py` | Independent build/browser/API/DB validators, parallel execution |
 | Custom agent plugins | `core/agent_registry.py` | `custom_agents/config.json` → auto-registered in unified registry |
+| MCTS multi-path search | `mcts/` | UCB1 tree search with parallel branch exploration, scoring, lesson extraction |
 | Per-agent exec policy | `core/exec_policy.py` | Agent-level bash restrictions (DENY/READONLY/ALLOWLIST/FULL) |
 | Standard tool groups | `core/tool_policy.py` | 10 built-in `@group` references + 5 ToolProfile presets |
 | Hook sync emit | `core/hooks.py` | `emit_hook_sync()` for tool-call hot paths |
@@ -466,7 +471,7 @@ Pipeline stages defined as data, not hardcoded function calls. Supports topologi
 from core.pipeline import PipelineEngine
 from core.pipelines import get_pipeline
 
-pipeline = get_pipeline("default")   # or "design", "qa_only"
+pipeline = get_pipeline("default")   # or "design", "qa_only", "mcts"
 engine = PipelineEngine(pipeline, {"working_dir": ..., "spec_dir": ..., "model": ...})
 result = await engine.run()
 ```
@@ -478,6 +483,7 @@ result = await engine.run()
 | `default` | build → qa (if not skip_qa) → merge | Standard task execution |
 | `design` | decompose | Design task decomposition |
 | `qa_only` | qa | Resume QA validation |
+| `mcts` | mcts_search → merge_best | Multi-path search with scoring |
 
 **Programmatic invocation** via `cli/build_commands.py:run_pipeline()`.
 
@@ -627,7 +633,7 @@ For large projects that need to be split into multiple parallel tasks, use **`ta
 | `prompts_pkg/prompt_generator.py` | Routes design tasks to design_architect.md |
 | `prompts_pkg/prompts.py` | `is_first_run()` detects design task completion |
 
-**Execution flow:**
+**Execution flow (design):**
 ```
 taskType="design" → Daemon → run.py → coder.py (planner agent)
 → design_architect.md prompt → create_batch_child_specs tool
@@ -636,11 +642,78 @@ taskType="design" → Daemon → run.py → coder.py (planner agent)
 → Each child: Planner → Coder → QA Reviewer → QA Fixer
 ```
 
+**Execution flow (MCTS):**
+```
+taskType="mcts" → Daemon → run.py → build_commands.py (detects MCTS)
+→ mcts.orchestrator.run_mcts_search()
+→ idea_generator → N child specs → Daemon executes each
+→ scorer evaluates → backpropagate → lesson_extractor
+→ UCB select → improver/debugger → new child specs → repeat
+→ Best branch selected → merge
+```
+
 **Design task constraints:**
 - Max depth = 2 by default (configurable via `AUTO_CLAUDE_MAX_CHILD_DEPTH` env var). Design/architecture types blocked at depth >= 2 to prevent unbounded decomposition.
 - Child specs use 1-based index for `dependsOn` references (e.g., `"1"`, `"2"`)
 - The `SpecFactory` uses 2-pass dependency resolution to map internal refs to actual spec IDs
 - Design tasks skip plan validation (they don't produce phases/subtasks)
+
+### MCTS Multi-Path Search (`mcts/`)
+
+For tasks where multiple solution approaches should be explored in parallel, use **`taskType: "mcts"`**. This runs a Monte Carlo Tree Search that generates diverse ideas, executes them as child specs via the daemon, scores results, and iteratively improves.
+
+**How it works:**
+1. Create a spec with `"taskType": "mcts"` (or use `--task-type mcts` on spec_runner.py)
+2. The MCTS orchestrator generates N diverse solution ideas via the `mcts_idea_generator` agent
+3. Each idea becomes a child spec (created via `SpecFactory.create_batch_specs()`)
+4. The daemon executes child specs normally (planner → coder → optional QA)
+5. Completed branches are scored (build 0.3 + test 0.3 + lint 0.1 + QA 0.3)
+6. Lessons are extracted by comparing successful vs failed branches
+7. UCB1 selection picks the most promising node for further improvement or debugging
+8. Process repeats until budget exhausted, score converges, or target reached
+
+**CLI usage:**
+```bash
+# Create MCTS task for daemon
+python runners/spec_runner.py --task "description" --task-type mcts --no-build
+
+# Or with immediate execution
+python runners/spec_runner.py --task "description" --task-type mcts --auto-merge
+```
+
+**Module structure:**
+```
+mcts/
+├── tree.py              # MCTSNode, MCTSTree (UCB1, backpropagation, JSON persistence)
+├── budget.py            # BudgetTracker (wall-clock, iterations, branches)
+├── scorer.py            # BranchScore — build/test/lint/QA scoring
+├── orchestrator.py      # Main MCTS loop (pure Python, delegates to LLM agents)
+├── idea_generator.py    # LLM: generates N diverse solution approaches
+├── improver.py          # LLM: proposes improvements for high-score branches
+├── debugger.py          # LLM: analyzes failures, proposes fix direction
+└── lesson_extractor.py  # LLM: compares branches, extracts structured lessons
+```
+
+**Registered agents** (in `core/agent_registry.py`):
+
+| Agent | Category | Security | Purpose |
+|-------|----------|----------|---------|
+| `mcts_idea_generator` | design | readonly | Generate diverse solution ideas |
+| `mcts_improver` | design | readonly | Propose improvements based on lessons |
+| `mcts_debugger` | design | readonly | Analyze failures, propose fixes |
+| `mcts_lesson_extractor` | analysis | readonly | Compare branches, extract lessons |
+
+**Pipeline:** `MCTS_PIPELINE` in `core/pipelines.py` — stages: `mcts_search` → `merge_best`
+
+**Persistence:**
+- `spec_dir/mcts_tree.json` — full tree state (supports resume after interruption)
+- `spec_dir/mcts_lessons.json` — accumulated cross-branch lessons
+
+**Key design decisions:**
+- MCTS parent specs run as headless (NOT plan mode) — the orchestrator needs full execution
+- Child specs are standard `impl` tasks — the daemon handles them normally
+- Pure Python for algorithm (tree, scorer, budget); LLM only for creative tasks (ideas, improvements, debugging, lessons)
+- Each child branch gets independent worktree isolation and QA validation
 
 ### Memory System (Graphiti)
 
