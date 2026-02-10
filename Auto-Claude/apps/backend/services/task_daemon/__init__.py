@@ -228,6 +228,16 @@ class TaskDaemon:
         self._state_manager.load()
         self._state_manager.set_started_at()
 
+        # Load project-specific agents (from {project_dir}/.auto-claude/agents/)
+        try:
+            from core.agent_registry import AgentRegistry
+            reg = AgentRegistry.instance()
+            count = reg.load_project_agents(self.project_dir)
+            if count > 0:
+                self._logger.info(f"Loaded {count} project-specific agents from {self.project_dir.name}")
+        except Exception as e:
+            self._logger.warning(f"Failed to load project agents: {e}")
+
         # Scan existing tasks
         self._scan_existing_tasks()
 

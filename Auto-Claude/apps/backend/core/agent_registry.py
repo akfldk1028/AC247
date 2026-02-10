@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
@@ -291,6 +292,98 @@ class AgentRegistry:
             )
             self._agents[agent_type] = defn
             logger.info(f"Registered custom agent: {agent_type}")
+
+    def load_project_agents(self, project_dir: str | Path) -> int:
+        """Load project-specific agents from {project_dir}/.auto-claude/agents/.
+
+        Project agents override global custom_agents (same ID = project wins).
+        Also loads project-level .env if present.
+
+        Args:
+            project_dir: Path to the project root (e.g., D:/Data/MB_N2N/MB_N2N)
+
+        Returns:
+            Number of agents loaded from the project.
+        """
+        project_path = Path(project_dir)
+        agents_dir = project_path / ".auto-claude" / "agents"
+        config_path = agents_dir / "config.json"
+
+        if not config_path.exists():
+            logger.debug(f"No project agents at {config_path}")
+            return 0
+
+        # Load project-level .env (override global)
+        project_env = project_path / ".auto-claude" / ".env"
+        if project_env.exists():
+            try:
+                self._load_env_file(project_env)
+                logger.info(f"Loaded project .env: {project_env}")
+            except Exception as e:
+                logger.warning(f"Failed to load project .env: {e}")
+
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(f"Failed to load project agents config: {e}")
+            return 0
+
+        count = 0
+        agents_data = config.get("agents", {})
+        for agent_type, agent_config in agents_data.items():
+            # Project agents can override global custom agents
+            if agent_type in self._agents and not self._agents[agent_type].is_custom:
+                logger.warning(
+                    f"Project agent '{agent_type}' conflicts with built-in agent. Skipped."
+                )
+                continue
+
+            prompt_file = agent_config.get("prompt_file", "")
+            prompt_path = agents_dir / "prompts" / prompt_file
+            if not prompt_path.exists():
+                logger.warning(
+                    f"Project agent '{agent_type}' prompt not found: {prompt_path}"
+                )
+                continue
+
+            defn = AgentDefinition(
+                id=agent_type,
+                description=agent_config.get("description", ""),
+                category="project",
+                tools=agent_config.get("tools", BASE_READ_TOOLS + BASE_WRITE_TOOLS),
+                mcp_servers=agent_config.get("mcp_servers", []),
+                auto_claude_tools=agent_config.get("auto_claude_tools", []),
+                thinking_default=agent_config.get("thinking_default", "medium"),
+                security_level="allowlist",
+                script=agent_config.get("script"),
+                use_claude_cli=agent_config.get("use_claude_cli", False),
+                prompt_template=agent_config.get("prompt_template"),
+                execution_mode=agent_config.get("execution_mode"),
+                extra_args=agent_config.get("extra_args", []),
+                is_custom=True,
+                custom_prompt_file=str(prompt_path),
+            )
+            self._agents[agent_type] = defn
+            count += 1
+            logger.info(f"Registered project agent: {agent_type} (from {project_path.name})")
+
+        return count
+
+    @staticmethod
+    def _load_env_file(env_path: Path) -> None:
+        """Load a .env file into os.environ (simple key=value, skip comments)."""
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip()
+                    if value and not value.startswith("#"):
+                        os.environ[key] = value
 
 
 # =============================================================================

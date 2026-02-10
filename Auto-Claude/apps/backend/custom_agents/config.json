@@ -1,49 +1,64 @@
 {
-  "$schema": "Custom Agent Configuration - Auto-registered into AGENT_CONFIGS",
+  "$schema": "Global Custom Agent Configuration - shared across all projects",
   "version": "2.0.0",
-  "description": "MB_N2N BrickGame Unity 프로젝트용 커스텀 에이전트 설정. prompts/ 폴더의 .md 파일과 매핑됨.",
+  "description": "AC247 범용 커스텀 에이전트. 프로젝트 전용 에이전트는 각 프로젝트의 .auto-claude/agents/에 배치.",
+  "note": "MB_N2N agents moved to D:/Data/MB_N2N/MB_N2N/.auto-claude/agents/ (2026-02-10)",
 
   "agents": {
-    "mb_game_logic": {
-      "prompt_file": "mb_game_logic.md",
-      "description": "BrickGame 코어 메카닉 - 점수, 레벨, 게임 흐름, 승패 판정",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
-      "mcp_servers": ["context7", "mcp-unity"],
-      "thinking_default": "medium"
-    },
-    "mb_network": {
-      "prompt_file": "mb_network.md",
-      "description": "Unity Relay, NetworkVariable, ServerRpc/ClientRpc, 로비, Sessions API",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
-      "mcp_servers": ["context7", "mcp-unity"],
-      "thinking_default": "high"
-    },
-    "mb_ui": {
-      "prompt_file": "mb_ui.md",
-      "description": "UI 컴포넌트, 팝업, ActionBus 이벤트 바인딩, 게임 결과 화면",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
-      "mcp_servers": ["context7", "mcp-unity"],
-      "thinking_default": "medium"
-    },
-    "mb_physics": {
-      "prompt_file": "mb_physics.md",
-      "description": "공/패들 물리, 충돌, 입력(터치/마우스/키보드), 파워업",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
-      "mcp_servers": ["context7", "mcp-unity"],
-      "thinking_default": "medium"
-    },
-    "mb_infrastructure": {
-      "prompt_file": "mb_infrastructure.md",
-      "description": "ActionMessageBus, StateMachine, NetworkedMessageChannel, 디자인 패턴",
+    "s3_ai_analyzer": {
+      "prompt_file": "s3_ai_analyzer.md",
+      "description": "S3 AI 분석 에이전트",
       "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
       "mcp_servers": ["context7"],
-      "thinking_default": "high"
+      "thinking_default": "medium"
     },
-    "mb_managers": {
-      "prompt_file": "mb_managers.md",
-      "description": "Service Locator (Managers.cs), DataManager, ResourceManager, 초기화 흐름",
+    "s3_ai_assistant": {
+      "prompt_file": "s3_ai_assistant.md",
+      "description": "S3 AI 어시스턴트 에이전트",
       "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
-      "mcp_servers": ["context7", "mcp-unity"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "medium"
+    },
+    "s3_ai_recommender": {
+      "prompt_file": "s3_ai_recommender.md",
+      "description": "S3 AI 추천 에이전트",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "medium"
+    },
+    "s3_backend_auth": {
+      "prompt_file": "s3_backend_auth.md",
+      "description": "S3 백엔드 인증 에이전트",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "medium"
+    },
+    "s3_backend_data": {
+      "prompt_file": "s3_backend_data.md",
+      "description": "S3 백엔드 데이터 에이전트",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "medium"
+    },
+    "s3_backend_notification": {
+      "prompt_file": "s3_backend_notification.md",
+      "description": "S3 백엔드 알림 에이전트",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "medium"
+    },
+    "s3_frontend_auth": {
+      "prompt_file": "s3_frontend_auth.md",
+      "description": "S3 프론트엔드 인증 에이전트",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "medium"
+    },
+    "s3_frontend_data": {
+      "prompt_file": "s3_frontend_data.md",
+      "description": "S3 프론트엔드 데이터 에이전트",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
       "thinking_default": "medium"
     }
   }
