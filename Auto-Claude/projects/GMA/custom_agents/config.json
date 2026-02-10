@@ -1,0 +1,34 @@
+{
+  "agents": {
+    "gma_pdf_viewer": {
+      "description": "PDF 뷰어 (pdfrx, 마커, 텍스트 선택)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "gma_note_editor": {
+      "description": "Markdown 에디터 (Wiki-link, LaTeX, Frontmatter)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "gma_workspace": {
+      "description": "워크스페이스 (3패널 레이아웃, 분할 뷰)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "gma_file_manager": {
+      "description": "파일 매니저 (트리 뷰, 검색, Hive 저장)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "gma_data_model": {
+      "description": "데이터 모델 (Freezed, PDF-노트 연동)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    }
+  }
+}

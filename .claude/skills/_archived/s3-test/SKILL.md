@@ -1,0 +1,143 @@
+---
+name: s3-test
+description: |
+  S3 Flutter ?�스???�행 �?결과 분석. ?�닛/?�젯/?�합 ?�스??지??
+  ?�용 ?�점: (1) PR ??검�? (2) 기능 구현 ?? (3) 버그 ?�정 ???��? ?�스??
+  ?�용 금�?: ?�순 lint�??�요, 커버리�?�??�요, ???�행 ?�인�?
+argument-hint: "[all|unit|widget|integration|feature-name]"
+allowed-tools: Read, Grep, Glob, Bash
+---
+
+# S3 Test Skill
+
+?�스?��? ?�행?�고 결과�?분석?�니??
+
+## When to Use
+- 코드 변�???검증할 ??
+- PR ?�성 ???�스???�인 ??
+- ?�정 feature ?�스???�요 ??
+- 배포 ???�체 ?�스????
+
+## When NOT to Use
+- ?�순 문법 검????`flutter analyze` ?�용
+- ?�??검?�만 ??IDE ?�용
+- 커버리�? 리포?�만 ??`flutter test --coverage` 직접 ?�행
+
+## Quick Start
+```bash
+/s3-test all      # ?�체 ?�스??
+/s3-test auth     # auth feature�?
+```
+
+S3 ?�로?�트???�스?��? ?�행?�고 결과�?분석?�니??
+
+## ?�용�?
+
+```
+/s3-test [scope]
+```
+
+### ?�코???�션
+- `all` - ?�체 ?�스??(기본�?
+- `flutter` - Flutter ?�스?�만
+- `unit` - ?�닛 ?�스?�만
+- `widget` - ?�젯 ?�스?�만
+- `integration` - ?�합 ?�스?�만
+- `[feature]` - ?�정 feature ?�스??(?? `auth`, `home`)
+
+## ?�스???�로?�스
+
+### Step 1: Flutter ?�스??
+```bash
+cd C:\DK\S3\frontend
+C:\DK\flutter\bin\flutter.bat test
+```
+
+### Step 2: ?�정 ?�스???�일 ?�행
+```bash
+# ?�정 ?�일
+C:\DK\flutter\bin\flutter.bat test test/features/auth/auth_test.dart
+
+# ?�정 feature
+C:\DK\flutter\bin\flutter.bat test test/features/auth/
+```
+
+### Step 3: 커버리�? 리포??
+```bash
+C:\DK\flutter\bin\flutter.bat test --coverage
+```
+
+## ?�스??구조
+
+```
+frontend/
+?��??� test/
+    ?��??� features/
+    ??  ?��??� auth/
+    ??  ??  ?��??� login_test.dart
+    ??  ??  ?��??� auth_provider_test.dart
+    ??  ?��??� home/
+    ??  ??  ?��??� home_test.dart
+    ??  ?��??� profile/
+    ??      ?��??� profile_test.dart
+    ?��??� widgets/
+    ??  ?��??� common_widgets_test.dart
+    ?��??� test_helper.dart
+```
+
+## ?�스???�성 가?�드
+
+### Widget ?�스???�시
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+void main() {
+  testWidgets('LoginScreen renders correctly', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(home: LoginScreen()),
+      ),
+    );
+
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.byType(ShadInputFormField), findsNWidgets(2));
+  });
+}
+```
+
+### Provider ?�스???�시
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('authProvider initial state', () {
+    final container = ProviderContainer();
+    final state = container.read(authProvider);
+
+    expect(state.isAuthenticated, false);
+  });
+}
+```
+
+## ?�패???�스??처리
+
+?�스???�패 ???�동?�로:
+1. ?�러 로그 분석
+2. 관??코드 ?�일 ?�인
+3. ?�정 ?�안
+
+### Auto-Claude ?�동
+복잡???�스???�패??Auto-Claude??QA ?�이?�트 ?�용:
+
+```bash
+cd C:\DK\S3\Auto-Claude\apps\backend
+.venv\Scripts\python.exe run.py --qa --task "?�스???�패 ?�정"
+```
+
+## ?�음 ?�계
+
+?�스???�과 ??
+- `/s3-build` - ?�로?�션 빌드
+- `/s3-deploy` - 배포

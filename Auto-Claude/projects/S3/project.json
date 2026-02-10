@@ -1,0 +1,13 @@
+{
+  "name": "S3",
+  "project_dir": "C:\\DK\\S3\\frontend",
+  "description": "AI 세그멘테이션 기반 이미지 편집 앱 (Flutter + Supabase)",
+  "framework": "Flutter",
+  "skills_dir": "C:\\DK\\S3\\.claude\\skills",
+  "clone_dir": "C:\\DK\\S3\\clone\\Auto-Claude",
+  "tech_stack": ["Flutter", "Riverpod", "Freezed", "Supabase", "Hono", "ShadCN UI", "go_router"],
+  "env_vars": {
+    "PYTHONUTF8": "1",
+    "USE_CLAUDE_MD": "true"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "agents": {
+    "s3_backend_auth": {
+      "description": "Backend 인증 (JWT, OAuth, Session)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "s3_backend_data": {
+      "description": "Backend 데이터 (CRUD, Query, Cache)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "s3_edge_api": {
+      "description": "Edge API (Hono, R2, Supabase CRUD)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "s3_supabase": {
+      "description": "Supabase (마이그레이션, RLS, Storage)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    },
+    "s3_frontend_auth": {
+      "description": "Frontend 인증 UI (Flutter)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+      "mcp_servers": ["context7", "auto-claude"],
+      "thinking_default": "medium"
+    }
+  }
+}

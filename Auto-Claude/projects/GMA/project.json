@@ -1,0 +1,17 @@
+{
+  "name": "GMA",
+  "project_dir": "C:\\DK\\GMA\\frontend",
+  "description": "PDF 좌표 연동 Markdown 메모 앱 (Flutter)",
+  "framework": "Flutter",
+  "skills_dir": "C:\\DK\\GMA\\.claude\\skills",
+  "clone_dir": "C:\\DK\\GMA\\clone\\AC247\\Auto-Claude",
+  "references": [
+    "C:\\DK\\GMA\\clone\\pdfrx",
+    "C:\\DK\\GMA\\clone\\printnotes"
+  ],
+  "tech_stack": ["Flutter", "Riverpod", "Freezed", "pdfrx", "Hive", "ShadCN UI", "go_router"],
+  "env_vars": {
+    "PYTHONUTF8": "1",
+    "USE_CLAUDE_MD": "true"
+  }
+}
