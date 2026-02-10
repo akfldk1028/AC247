@@ -1,12 +1,37 @@
 {
-  "project_root": "/Users/andremikalsen/Documents/Coding/autonomous-coding",
-  "project_type": "single",
-  "services": {},
-  "infrastructure": {
-    "docker_compose": "docker-compose.yml",
-    "docker_services": [
-      "falkordb"
-    ]
+  "project_root": "D:/Data/MB_N2N/MB_N2N",
+  "project_type": "unity",
+  "services": {
+    "game_logic": {
+      "path": "Assets/@Scripts/Contents/BrickGame",
+      "description": "BrickGame core mechanics (POCO managers)"
+    },
+    "network": {
+      "path": "Assets/@Scripts/Network",
+      "description": "Netcode for GameObjects, Relay, Lobby, Sessions API"
+    },
+    "ui": {
+      "path": "Assets/@Scripts/UI",
+      "description": "UI scenes, popups, BrickGame UI controllers"
+    },
+    "managers": {
+      "path": "Assets/@Scripts/Managers",
+      "description": "Service Locator, DataManager, ResourceManager, UIManager"
+    },
+    "infrastructure": {
+      "path": "Assets/@Scripts/Infrastructure",
+      "description": "ActionMessageBus, StateMachine, NetworkedMessageChannel"
+    }
   },
-  "conventions": {}
+  "infrastructure": {
+    "unity_version": "6000.x",
+    "netcode_version": "2.5.1",
+    "multiplayer_services": "1.1.8"
+  },
+  "conventions": {
+    "pattern": "Service Locator + ActionMessageBus + State Pattern",
+    "server_authority": true,
+    "poco_managers": true,
+    "module_maintainability_first": true
+  }
 }

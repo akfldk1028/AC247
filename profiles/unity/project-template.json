@@ -1,0 +1,47 @@
+{
+  "$schema": "Unity Project Configuration for AC247 Auto-Claude",
+  "version": "1.0.0",
+  "profile": "unity",
+  "engine": {
+    "name": "Unity",
+    "version": "6000.0.x",
+    "render_pipeline": "URP",
+    "scripting_backend": "IL2CPP",
+    "platforms": ["Windows", "Android", "WebGL"]
+  },
+  "project": {
+    "name": "YOUR_PROJECT_NAME",
+    "description": "YOUR_PROJECT_DESCRIPTION",
+    "project_dir": "D:/Data/YOUR_PROJECT",
+    "scripts_root": "Assets/@Scripts",
+    "resources_root": "Assets/@Resources",
+    "prefabs_root": "Assets/@Prefabs"
+  },
+  "architecture": {
+    "pattern": "service_locator",
+    "managers_file": "Assets/@Scripts/Managers/Managers.cs",
+    "event_system": "ActionMessageBus",
+    "event_ids_file": "Assets/@Scripts/Infrastructure/Messages/IAction.cs",
+    "state_machine": "StateMachine",
+    "networking": {
+      "framework": "Netcode for GameObjects",
+      "relay": "Unity Relay (Sessions API)",
+      "lobby": "Unity Lobby"
+    }
+  },
+  "conventions": {
+    "managers_access": "Managers.ManagerName",
+    "event_subscribe": "Managers.Subscribe(ActionId.XXX, handler)",
+    "event_publish": "Managers.PublishAction(ActionId.XXX, payload)",
+    "resource_load": "Managers.Resource.Load<T>(key)",
+    "ui_popup": "Managers.UI.ShowPopupUI<T>()",
+    "scene_load": "Managers.Scene.LoadScene(Define.EScene.XXX)",
+    "pool_usage": "Managers.Resource.Instantiate(key, parent, pooling: true)"
+  },
+  "daemon": {
+    "auto_claude_backend": "D:/Data/AC247_MB/AC247/Auto-Claude/apps/backend",
+    "custom_agents_profile": "unity",
+    "specs_dir": ".auto-claude/specs",
+    "model": "claude-opus-4-6"
+  }
+}

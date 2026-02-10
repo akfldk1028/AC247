@@ -1,0 +1,28 @@
+{
+  "status": "queue",
+  "planStatus": "queue",
+  "xstateState": "backlog",
+  "executionPhase": "backlog",
+  "taskType": "default",
+  "priority": 1,
+  "complexity": "standard",
+  "phases": [
+    {
+      "name": "create-sound-manager",
+      "description": "Create SoundManager POCO with BGM/SFX AudioSource pool"
+    },
+    {
+      "name": "register-in-managers",
+      "description": "Add SoundManager to Managers.cs Service Locator"
+    },
+    {
+      "name": "create-sound-binder",
+      "description": "Create GameSoundBinder with ActionBus event subscriptions"
+    },
+    {
+      "name": "validate",
+      "description": "Compile check and verify integration"
+    }
+  ],
+  "subtasks": []
+}

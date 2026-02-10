@@ -1,0 +1,28 @@
+{
+  "status": "queue",
+  "planStatus": "queue",
+  "xstateState": "backlog",
+  "executionPhase": "backlog",
+  "taskType": "default",
+  "priority": 5,
+  "complexity": "standard",
+  "phases": [
+    {
+      "name": "add-pause-phase",
+      "description": "Add Paused to GamePhase enum"
+    },
+    {
+      "name": "implement-pause-logic",
+      "description": "Add Pause/Resume to game manager with Time.timeScale"
+    },
+    {
+      "name": "create-pause-popup",
+      "description": "Create UI_PausePopup with Resume/Restart/Settings/Exit"
+    },
+    {
+      "name": "validate",
+      "description": "Compile and verify pause/resume cycle"
+    }
+  ],
+  "subtasks": []
+}

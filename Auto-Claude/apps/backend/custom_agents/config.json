@@ -1,63 +1,49 @@
 {
   "$schema": "Custom Agent Configuration - Auto-registered into AGENT_CONFIGS",
-  "version": "1.0.0",
-  "description": "S3 프로젝트용 커스텀 에이전트 설정. prompts/ 폴더의 .md 파일과 매핑됨.",
+  "version": "2.0.0",
+  "description": "MB_N2N BrickGame Unity 프로젝트용 커스텀 에이전트 설정. prompts/ 폴더의 .md 파일과 매핑됨.",
 
   "agents": {
-    "s3_backend_auth": {
-      "prompt_file": "s3_backend_auth.md",
-      "description": "S3 Backend Auth Agent - JWT, OAuth, Session 구현",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
-      "mcp_servers": ["context7", "auto-claude"],
+    "mb_game_logic": {
+      "prompt_file": "mb_game_logic.md",
+      "description": "BrickGame 코어 메카닉 - 점수, 레벨, 게임 흐름, 승패 판정",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
       "thinking_default": "medium"
     },
-    "s3_backend_data": {
-      "prompt_file": "s3_backend_data.md",
-      "description": "S3 Backend Data Agent - CRUD, Query, Cache 구현",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
-      "mcp_servers": ["context7", "auto-claude"],
-      "thinking_default": "medium"
-    },
-    "s3_backend_notification": {
-      "prompt_file": "s3_backend_notification.md",
-      "description": "S3 Backend Notification Agent - Push, Email, SMS 구현",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
-      "mcp_servers": ["context7", "auto-claude"],
-      "thinking_default": "medium"
-    },
-    "s3_ai_assistant": {
-      "prompt_file": "s3_ai_assistant.md",
-      "description": "S3 AI Assistant Agent - LLM 기반 어시스턴트 구현",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
-      "mcp_servers": ["context7", "auto-claude"],
+    "mb_network": {
+      "prompt_file": "mb_network.md",
+      "description": "Unity Relay, NetworkVariable, ServerRpc/ClientRpc, 로비, Sessions API",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
       "thinking_default": "high"
     },
-    "s3_ai_analyzer": {
-      "prompt_file": "s3_ai_analyzer.md",
-      "description": "S3 AI Analyzer Agent - 데이터 분석, 요약, 분류 구현",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
-      "mcp_servers": ["context7", "auto-claude"],
-      "thinking_default": "high"
-    },
-    "s3_ai_recommender": {
-      "prompt_file": "s3_ai_recommender.md",
-      "description": "S3 AI Recommender Agent - 추천 시스템 구현",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
-      "mcp_servers": ["context7", "auto-claude"],
-      "thinking_default": "high"
-    },
-    "s3_frontend_auth": {
-      "prompt_file": "s3_frontend_auth.md",
-      "description": "S3 Frontend Auth Agent - Flutter 인증 UI 구현",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
-      "mcp_servers": ["context7", "auto-claude"],
+    "mb_ui": {
+      "prompt_file": "mb_ui.md",
+      "description": "UI 컴포넌트, 팝업, ActionBus 이벤트 바인딩, 게임 결과 화면",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
       "thinking_default": "medium"
     },
-    "s3_frontend_data": {
-      "prompt_file": "s3_frontend_data.md",
-      "description": "S3 Frontend Data Agent - Flutter 데이터 동기화 구현",
-      "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebFetch", "WebSearch"],
-      "mcp_servers": ["context7", "auto-claude"],
+    "mb_physics": {
+      "prompt_file": "mb_physics.md",
+      "description": "공/패들 물리, 충돌, 입력(터치/마우스/키보드), 파워업",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "medium"
+    },
+    "mb_infrastructure": {
+      "prompt_file": "mb_infrastructure.md",
+      "description": "ActionMessageBus, StateMachine, NetworkedMessageChannel, 디자인 패턴",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "high"
+    },
+    "mb_managers": {
+      "prompt_file": "mb_managers.md",
+      "description": "Service Locator (Managers.cs), DataManager, ResourceManager, 초기화 흐름",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
       "thinking_default": "medium"
     }
   }

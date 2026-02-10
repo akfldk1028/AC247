@@ -1,0 +1,43 @@
+{
+  "$schema": "Unity 범용 에이전트 설정 - 어떤 Unity 프로젝트에든 적용 가능",
+  "version": "1.0.0",
+  "description": "Unity Service Locator + ActionMessageBus 패턴 기반 프로젝트용 에이전트",
+
+  "agents": {
+    "unity_managers": {
+      "prompt_file": "unity_managers.md",
+      "description": "Unity Service Locator 패턴, 싱글턴 Managers, 초기화 흐름, 리소스/풀/데이터 매니저",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "medium"
+    },
+    "unity_network": {
+      "prompt_file": "unity_network.md",
+      "description": "Netcode for GameObjects, Unity Relay, Sessions API, NetworkVariable, ServerRpc/ClientRpc",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "high"
+    },
+    "unity_ui": {
+      "prompt_file": "unity_ui.md",
+      "description": "UGUI 컴포넌트, 팝업 스택, ActionBus 이벤트 바인딩, Canvas/CanvasGroup",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "medium"
+    },
+    "unity_physics": {
+      "prompt_file": "unity_physics.md",
+      "description": "물리 시뮬레이션, 충돌, 입력 처리(터치/마우스/키보드), Rigidbody2D/3D",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "medium"
+    },
+    "unity_infrastructure": {
+      "prompt_file": "unity_infrastructure.md",
+      "description": "ActionMessageBus 이벤트 시스템, StateMachine, MessageChannel, 디자인 패턴",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "high"
+    }
+  }
+}
