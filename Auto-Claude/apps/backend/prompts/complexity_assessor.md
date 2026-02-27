@@ -346,7 +346,7 @@ Add this `validation_recommendations` section to your `complexity_assessment.jso
   "test_types_required": [],
   "security_scan_required": false,
   "staging_deployment_required": false,
-  "reasoning": "Documentation-only change to README.md with no functional code modifications."
+  "reasoning": "Documentation-only change to R1.md with no functional code modifications."
 }
 ```
 

@@ -1,0 +1,24 @@
+{
+  "status": "queue",
+  "planStatus": "queue",
+  "xstateState": "backlog",
+  "executionPhase": "backlog",
+  "taskType": "default",
+  "priority": 5,
+  "complexity": "standard",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Implementation",
+      "subtasks": [
+        {"id": "1", "description": "Extend InteractionType enum"},
+        {"id": "2", "description": "Add ActionId and Payload"},
+        {"id": "3", "description": "Add PointClickController method"},
+        {"id": "4", "description": "Add AINetworkManager mapping"},
+        {"id": "5", "description": "Implement GolemCharacterController handler"},
+        {"id": "6", "description": "Verify Unity compilation"}
+      ]
+    }
+  ],
+  "subtasks": []
+}

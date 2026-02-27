@@ -138,9 +138,9 @@ def create_test_git_repo(repo_path: Path, remote_url: str) -> bool:
         )
 
         # Create initial commit
-        (repo_path / "README.md").write_text("# Test Repository\n")
+        (repo_path / "R1.md").write_text("# Test Repository\n")
         subprocess.run(
-            ["git", "add", "README.md"],
+            ["git", "add", "R1.md"],
             cwd=repo_path,
             capture_output=True,
             check=True,

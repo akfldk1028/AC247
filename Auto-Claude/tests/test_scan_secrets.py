@@ -184,7 +184,7 @@ class TestFileSkipping:
 
     def test_skips_markdown_by_default(self):
         """Skips markdown files by default."""
-        assert should_skip_file("README.md", []) is True
+        assert should_skip_file("R1.md", []) is True
         assert should_skip_file("docs/guide.md", []) is True
 
     def test_respects_custom_ignores(self):

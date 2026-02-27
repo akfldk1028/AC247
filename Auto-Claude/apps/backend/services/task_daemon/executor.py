@@ -540,6 +540,12 @@ class TaskExecutor:
         # and last_update stays current (prevents false stuck detection)
         env = {**os.environ, "PYTHONUNBUFFERED": "1"}
 
+        # Remove Claude Code session markers to prevent "cannot be launched
+        # inside another Claude Code session" error when daemon itself runs
+        # inside a Claude Code session (e.g. user started daemon from CLI)
+        env.pop("CLAUDECODE", None)
+        env.pop("CLAUDE_CODE_ENTRYPOINT", None)
+
         # Windows: CREATE_NEW_PROCESS_GROUP so taskkill /T can kill the
         # entire process tree (python → run.py → claude, etc.) (BUG 9)
         kwargs: dict = {}

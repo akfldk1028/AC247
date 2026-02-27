@@ -221,7 +221,7 @@ def temp_git_repo(temp_dir: Path) -> Generator[Path, None, None]:
         )
 
         # Create initial commit
-        test_file = temp_dir / "README.md"
+        test_file = temp_dir / "R1.md"
         test_file.write_text("# Test Project\n")
         subprocess.run(["git", "add", "."], cwd=temp_dir, capture_output=True)
         subprocess.run(
@@ -1213,10 +1213,10 @@ def temp_project_dir(tmp_path):
     )
 
     # Create initial commit
-    readme = project_dir / "README.md"
+    readme = project_dir / "R1.md"
     readme.write_text("# Test Project\n")
     subprocess.run(
-        ["git", "add", "README.md"],
+        ["git", "add", "R1.md"],
         cwd=project_dir,
         capture_output=True,
         check=True,

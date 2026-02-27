@@ -1,0 +1,75 @@
+{
+  "$schema": "Golem AI Agent System 특화 에이전트 설정",
+  "version": "1.0.0",
+  "description": "Golem 프로젝트 전용 에이전트 - 기반 unity 프로파일(unity-agents.json)과 함께 사용",
+  "extends": "../unity/agents/unity-agents.json",
+
+  "project_context": {
+    "project_dir": "C:/DK/GL/Golem",
+    "reference_dir": "C:/DK/GL/MB_N2N",
+    "scripts_root": "Assets/Scripts",
+    "DO_NOT_MODIFY": [
+      "Assets/Scripts/Systems/Networking/CFConnector.cs",
+      "Assets/Scripts/Character/CelesteActionController.cs",
+      "Assets/Scripts/Character/PointClickController.cs",
+      "Assets/Scripts/Character/EmotePlayer.cs",
+      "Assets/Scripts/Systems/Camera/CameraStateMachine.cs",
+      "Assets/Scripts/Utils/WavUtility.cs"
+    ]
+  },
+
+  "agents": {
+    "golem_cfconnector": {
+      "prompt_file": "golem_cfconnector.md",
+      "description": "WebSocket/CFConnector 전문가 - 12개 이벤트, 7개 데이터 타입, RPC 송수신, AI 서버 통신 프로토콜",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "high",
+      "focus_paths": [
+        "Assets/Scripts/Systems/Networking/",
+        "Assets/Scripts/Infrastructure/Messages/"
+      ],
+      "key_files": [
+        "Assets/Scripts/Systems/Networking/CFConnector.cs",
+        "Assets/Scripts/Systems/Networking/AINetworkManager.cs"
+      ]
+    },
+    "golem_character": {
+      "prompt_file": "golem_character.md",
+      "description": "캐릭터 컨트롤러 전문가 - PointClickController(NavMesh), GolemCharacterController(ActionBus), CelesteActionController(액션), GolemEmoteHandler(음성/애니/표정)",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "high",
+      "focus_paths": [
+        "Assets/Scripts/Character/",
+        "Assets/Scripts/Infrastructure/Messages/"
+      ],
+      "key_files": [
+        "Assets/Scripts/Character/PointClickController.cs",
+        "Assets/Scripts/Character/CelesteActionController.cs",
+        "Assets/Scripts/Character/EmotePlayer.cs",
+        "Assets/Scripts/Character/GolemCharacterController.cs",
+        "Assets/Scripts/Character/GolemEmoteHandler.cs"
+      ]
+    },
+    "golem_ai_bridge": {
+      "prompt_file": "golem_ai_bridge.md",
+      "description": "AINetworkManager 전문가 - CFConnector->ActionBus 브릿지, AgentManager 멀티에이전트 관리, StateMachine 상태 전이, 피드백 리포팅",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "high",
+      "focus_paths": [
+        "Assets/Scripts/Systems/Networking/",
+        "Assets/Scripts/Infrastructure/",
+        "Assets/Scripts/Managers/"
+      ],
+      "key_files": [
+        "Assets/Scripts/Systems/Networking/AINetworkManager.cs",
+        "Assets/Scripts/Systems/Networking/CFConnector.cs",
+        "Assets/Scripts/Managers/AgentManager.cs",
+        "Assets/Scripts/Infrastructure/Messages/ActionId.cs",
+        "Assets/Scripts/Infrastructure/State/StateMachine.cs"
+      ]
+    }
+  }
+}

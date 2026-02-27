@@ -180,7 +180,7 @@ function fixMisconfiguredBareRepo(projectPath: string): boolean {
       // PHP ecosystem
       'composer.json',
       // General project markers
-      'Makefile', 'CMakeLists.txt', 'README.md', 'LICENSE'
+      'Makefile', 'CMakeLists.txt', 'R1.md', 'LICENSE'
     ];
 
     const GLOB_MARKERS = [

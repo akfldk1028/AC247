@@ -90,7 +90,7 @@ class TestWorktreeCreation:
         assert info.path.exists()
         assert info.branch == "auto-claude/test-spec"
         assert info.is_active is True
-        assert (info.path / "README.md").exists()
+        assert (info.path / "R1.md").exists()
 
     def test_create_worktree_with_spec_name(self, temp_git_repo: Path):
         """Worktree branch is derived from spec name."""
@@ -176,7 +176,7 @@ class TestWorktreeCreation:
         assert info2.branch == branch_name
         assert info2.is_active is True
         # README should exist (copied from base branch)
-        assert (info2.path / "README.md").exists()
+        assert (info2.path / "R1.md").exists()
 
     def test_create_worktree_stale_directory(self, temp_git_repo: Path):
         """create_worktree cleans up stale directory and recreates worktree."""
@@ -228,7 +228,7 @@ class TestWorktreeCreation:
         assert info2.branch == branch_name
         assert info2.is_active is True
         # README should exist (from base branch)
-        assert (info2.path / "README.md").exists()
+        assert (info2.path / "R1.md").exists()
         # Stale file should be gone (directory was cleaned up)
         assert not (info2.path / "stale-file.txt").exists()
 
@@ -294,7 +294,7 @@ class TestWorktreeCreation:
         assert info2.branch == branch_name
         assert info2.is_active is True
         # README should exist (from branch content)
-        assert (info2.path / "README.md").exists()
+        assert (info2.path / "R1.md").exists()
         # Stale file should be gone (directory was cleaned up before worktree add)
         assert not (info2.path / "stale-file.txt").exists()
 
@@ -705,7 +705,7 @@ class TestChangeTracking:
 
         # Make various changes
         (info.path / "new-file.txt").write_text("new")
-        (info.path / "README.md").write_text("modified")
+        (info.path / "R1.md").write_text("modified")
         subprocess.run(["git", "add", "."], cwd=info.path, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "Changes"], cwd=info.path, capture_output=True
@@ -714,7 +714,7 @@ class TestChangeTracking:
         summary = manager.get_change_summary("test-spec")
 
         assert summary["new_files"] == 1  # new-file.txt
-        assert summary["modified_files"] == 1  # README.md
+        assert summary["modified_files"] == 1  # R1.md
 
     def test_get_changed_files(self, temp_git_repo: Path):
         """get_changed_files returns list of changed files."""

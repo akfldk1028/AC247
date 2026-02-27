@@ -60,6 +60,62 @@
       "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
       "mcp_servers": ["context7"],
       "thinking_default": "medium"
+    },
+    "unity_managers": {
+      "prompt_file": "unity_managers.md",
+      "description": "Unity Service Locator 패턴, 싱글턴 Managers, 초기화 흐름, 리소스/풀/데이터 매니저",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "medium"
+    },
+    "unity_network": {
+      "prompt_file": "unity_network.md",
+      "description": "Netcode for GameObjects, Unity Relay, WebSocket, CFConnector 브릿지",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "high"
+    },
+    "unity_ui": {
+      "prompt_file": "unity_ui.md",
+      "description": "UGUI 컴포넌트, 팝업 스택, ActionBus 이벤트 바인딩, Canvas/CanvasGroup",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "medium"
+    },
+    "unity_physics": {
+      "prompt_file": "unity_physics.md",
+      "description": "물리 시뮬레이션, 충돌, 입력 처리(터치/마우스/키보드), Rigidbody2D/3D",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "medium"
+    },
+    "unity_infrastructure": {
+      "prompt_file": "unity_infrastructure.md",
+      "description": "ActionMessageBus 이벤트 시스템, StateMachine, MessageChannel, 디자인 패턴",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7"],
+      "thinking_default": "high"
+    },
+    "golem_cfconnector": {
+      "prompt_file": "golem_cfconnector.md",
+      "description": "Golem WebSocket/CFConnector 전문가 - 12개 이벤트, 7개 데이터 타입, RPC 송수신",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "high"
+    },
+    "golem_character": {
+      "prompt_file": "golem_character.md",
+      "description": "Golem 캐릭터 컨트롤러 전문가 - PointClickController, GolemCharacterController, 이모트 핸들러",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "high"
+    },
+    "golem_ai_bridge": {
+      "prompt_file": "golem_ai_bridge.md",
+      "description": "Golem AINetworkManager 전문가 - CFConnector→ActionBus 브릿지, 멀티에이전트, StateMachine",
+      "tools": ["Read", "Glob", "Grep", "Write", "Edit"],
+      "mcp_servers": ["context7", "mcp-unity"],
+      "thinking_default": "high"
     }
   }
 }

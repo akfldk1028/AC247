@@ -76,7 +76,7 @@ const STRIP_PATTERNS = {
   // Specific files to remove
   files: [
     'README',
-    'README.md',
+    'R1.md',
     'README.rst',
     'CHANGELOG',
     'CHANGELOG.md',

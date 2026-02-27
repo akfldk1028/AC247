@@ -1,0 +1,24 @@
+{
+  "status": "queue",
+  "planStatus": "queue",
+  "xstateState": "backlog",
+  "executionPhase": "backlog",
+  "taskType": "default",
+  "priority": 5,
+  "complexity": "standard",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Implementation",
+      "subtasks": [
+        {"id": "1", "description": "Add ActionId.Character_{ACTION_NAME} to ActionId.cs"},
+        {"id": "2", "description": "Create {ACTION_NAME}Payload struct in ActionPayloads.cs"},
+        {"id": "3", "description": "Add HandleCharacterAction mapping in AINetworkManager.cs"},
+        {"id": "4", "description": "Subscribe and handle in GolemCharacterController.cs"},
+        {"id": "5", "description": "Add keyboard test binding"},
+        {"id": "6", "description": "Verify Unity compilation"}
+      ]
+    }
+  ],
+  "subtasks": []
+}

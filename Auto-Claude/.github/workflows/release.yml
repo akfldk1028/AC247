@@ -653,7 +653,7 @@ jobs:
             echo "Detected STABLE release: $VERSION"
           fi
 
-      - name: Update README.md
+      - name: Update R1.md
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           IS_PRERELEASE="${{ steps.version.outputs.is_prerelease }}"

@@ -65,10 +65,10 @@ with open("config.json", encoding="utf-8") as f:
 
 ```python
 # Wrong
-content = Path("README.md").read_text()
+content = Path("R1.md").read_text()
 
 # Correct
-content = Path("README.md").read_text(encoding="utf-8")
+content = Path("R1.md").read_text(encoding="utf-8")
 ```
 
 #### Pitfall 3: Subprocess output

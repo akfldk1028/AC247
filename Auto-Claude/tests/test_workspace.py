@@ -78,15 +78,15 @@ class TestHasUncommittedChanges:
 
     def test_modified_file_has_changes(self, temp_git_repo: Path):
         """Modified tracked file counts as changes."""
-        (temp_git_repo / "README.md").write_text("modified content")
+        (temp_git_repo / "R1.md").write_text("modified content")
 
         result = has_uncommitted_changes(temp_git_repo)
         assert result is True
 
     def test_staged_file_has_changes(self, temp_git_repo: Path):
         """Staged file counts as changes."""
-        (temp_git_repo / "README.md").write_text("modified")
-        subprocess.run(["git", "add", "README.md"], cwd=temp_git_repo, capture_output=True)
+        (temp_git_repo / "R1.md").write_text("modified")
+        subprocess.run(["git", "add", "R1.md"], cwd=temp_git_repo, capture_output=True)
 
         result = has_uncommitted_changes(temp_git_repo)
         assert result is True

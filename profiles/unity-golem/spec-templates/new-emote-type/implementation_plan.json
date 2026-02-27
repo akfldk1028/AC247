@@ -1,0 +1,23 @@
+{
+  "status": "queue",
+  "planStatus": "queue",
+  "xstateState": "backlog",
+  "executionPhase": "backlog",
+  "taskType": "default",
+  "priority": 5,
+  "complexity": "standard",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Implementation",
+      "subtasks": [
+        {"id": "1", "description": "Add ActionId.Agent_{EMOTE_NAME} to ActionId.cs"},
+        {"id": "2", "description": "Create {EMOTE_NAME}Payload struct in ActionPayloads.cs"},
+        {"id": "3", "description": "Add bridge handler in AINetworkManager.cs"},
+        {"id": "4", "description": "Implement Play{EMOTE_NAME} in GolemEmoteHandler.cs"},
+        {"id": "5", "description": "Verify Unity compilation"}
+      ]
+    }
+  ],
+  "subtasks": []
+}

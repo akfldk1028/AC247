@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Update README.md version badges and download links.
+Update R1.md version badges and download links.
 
 Usage:
     python scripts/update-readme.py <version> [--prerelease]
@@ -37,7 +37,7 @@ def update_section(text: str, start_marker: str, end_marker: str, replacements: 
 
 def update_readme(version: str, is_prerelease: bool) -> bool:
     """
-    Update README.md with new version.
+    Update R1.md with new version.
 
     Args:
         version: Version string (e.g., "2.8.0" or "2.8.0-beta.1")
@@ -50,7 +50,7 @@ def update_readme(version: str, is_prerelease: bool) -> bool:
     version_badge = version.replace("-", "--")
 
     # Read README
-    with open("README.md", "r") as f:
+    with open("R1.md", "r") as f:
         original_content = f.read()
 
     content = original_content
@@ -127,15 +127,15 @@ def update_readme(version: str, is_prerelease: bool) -> bool:
         return False
 
     # Write updated README
-    with open("README.md", "w") as f:
+    with open("R1.md", "w") as f:
         f.write(content)
 
-    print(f"README.md updated for {version} (prerelease={is_prerelease})")
+    print(f"R1.md updated for {version} (prerelease={is_prerelease})")
     return True
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Update README.md version badges and download links")
+    parser = argparse.ArgumentParser(description="Update R1.md version badges and download links")
     parser.add_argument("version", help="Version string (e.g., 2.8.0 or 2.8.0-beta.1)")
     parser.add_argument("--prerelease", action="store_true", help="Mark as prerelease version")
     args = parser.parse_args()
@@ -153,7 +153,7 @@ def main():
         changed = update_readme(args.version, is_prerelease)
         sys.exit(0 if changed else 0)  # Exit 0 in both cases (no error)
     except FileNotFoundError:
-        print("ERROR: README.md not found", file=sys.stderr)
+        print("ERROR: R1.md not found", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)

@@ -225,7 +225,7 @@ function main() {
     success('Updated apps/backend/__init__.py');
   }
 
-  // Note: README.md is NOT updated here - it gets updated by the release workflow
+  // Note: R1.md is NOT updated here - it gets updated by the release workflow
   // after the GitHub release is successfully published. This prevents version
   // mismatches where README shows a version that doesn't exist yet.
 

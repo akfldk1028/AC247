@@ -72,7 +72,7 @@ You MUST create `roadmap_discovery.json` with this EXACT structure:
 cat project_index.json
 
 # Look for README and documentation
-cat README.md 2>/dev/null || echo "No README found"
+cat R1.md 2>/dev/null || echo "No README found"
 
 # Check for existing roadmap or planning docs
 ls -la docs/ 2>/dev/null || echo "No docs folder"

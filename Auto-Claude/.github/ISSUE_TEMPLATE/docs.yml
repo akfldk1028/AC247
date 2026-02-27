@@ -19,7 +19,7 @@ body:
     attributes:
       label: Location
       description: Which file or page?
-      placeholder: "e.g., README.md or guides/setup.md"
+      placeholder: "e.g., R1.md or guides/setup.md"
 
   - type: textarea
     id: description

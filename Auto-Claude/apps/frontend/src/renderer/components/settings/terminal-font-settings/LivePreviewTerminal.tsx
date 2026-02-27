@@ -53,7 +53,7 @@ export function LivePreviewTerminal({ settings }: LivePreviewTerminalProps) {
     '\x1b[1;34mdrwxr-xr-x\x1b[0m  5 user  staff   160 Jan 15 10:30 \x1b[1;34msrc\x1b[0m',
     '\x1b[1;34mdrwxr-xr-x\x1b[0m  3 user  staff    96 Jan 15 10:30 \x1b[1;34mtests\x1b[0m',
     '-rw-r--r--  1 user  staff  2048 Jan 15 10:30 package.json',
-    '-rw-r--r--  1 user  staff  1024 Jan 15 10:30 README.md',
+    '-rw-r--r--  1 user  staff  1024 Jan 15 10:30 R1.md',
     '',
     '\x1b[1;32muser@hostname\x1b[0m:\x1b[1;34m~/project\x1b[0m$ \x1b[37mgit status\x1b[0m',
     'On branch main',
